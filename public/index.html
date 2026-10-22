@@ -501,7 +501,8 @@ ready = true; render();
 (async ()=>{
   if (hostCode){ try{ await api("host/login", {code:hostCode}); hostAuthed = true; }catch{ hostCode=""; ls.set("wsii.host", null); } }
   await refresh();
-  setInterval(()=>{ if (!document.hidden && !Object.keys(localPicks).length) refresh(); }, 20000);
+  // skip background refreshes while someone has a dropdown open, so it doesn't snap shut
+  setInterval(()=>{ const a=document.activeElement; if (!document.hidden && !Object.keys(localPicks).length && !(a && a.tagName==="SELECT")) refresh(); }, 20000);
   document.addEventListener("visibilitychange", ()=>{ if (!document.hidden) refresh(); });
 })();
 </script>
