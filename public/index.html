@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Whose Song Is It</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/* Layout: one narrow column, a sticky tab bar, and each song as a row on a "ballot" with its guess select on the right */
+:root{
+  --bg:#f6f4fb; --surface:#ffffff; --ink:#1d1a2e; --muted:#6a6582; --line:#e3dff0;
+  --accent:#e2541b; --accent-ink:#ffffff; --accent-soft:#fde7dc;
+  --plum:#4a3aa8; --plum-soft:#ebe8fb;
+  --good:#1f8a52; --good-soft:#dcf3e6; --bad:#c23a3a; --bad-soft:#f9e0e0;
+  --f-display:"Unbounded", "Arial Black", system-ui, sans-serif;
+  --f-body:"Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono:"JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#13111d; --surface:#1c1a2a; --ink:#ece9f7; --muted:#a29dbb; --line:#2f2b45;
+  --accent:#ff7a3d; --accent-ink:#1a0d05; --accent-soft:#3a2216;
+  --plum:#a99cff; --plum-soft:#29244a;
+  --good:#54d38f; --good-soft:#163527; --bad:#ff7d7d; --bad-soft:#3b1c1f; color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#13111d; --surface:#1c1a2a; --ink:#ece9f7; --muted:#a29dbb; --line:#2f2b45;
+  --accent:#ff7a3d; --accent-ink:#1a0d05; --accent-soft:#3a2216;
+  --plum:#a99cff; --plum-soft:#29244a;
+  --good:#54d38f; --good-soft:#163527; --bad:#ff7d7d; --bad-soft:#3b1c1f; color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html{color-scheme:light}
+@media (prefers-color-scheme: dark){html{color-scheme:dark}}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5;
+  padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px));padding-block:0 48px}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top, 0px);z-index:10;background:var(--bg)}
+.wrap{max-width:720px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+header.top{padding-top:28px;display:flex;flex-direction:column;gap:6px}
+.brand{font-family:var(--f-display);font-weight:700;font-size:clamp(26px,6vw,36px);line-height:1.05;letter-spacing:-.01em;text-wrap:balance;margin:0}
+.brand em{font-style:normal;color:var(--accent)}
+.sub{color:var(--muted);margin:0;max-width:60ch}
+nav.tabs{position:sticky;top:env(safe-area-inset-top, 0px);z-index:5;background:var(--bg);display:flex;gap:4px;padding-block:8px;border-bottom:1px solid var(--line)}
+nav.tabs button{font:600 14px var(--f-body);background:none;border:0;color:var(--muted);padding:8px 12px;border-radius:999px;cursor:pointer}
+nav.tabs button[aria-selected="true"]{background:var(--ink);color:var(--bg)}
+nav.tabs button:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.banner{background:var(--plum-soft);color:var(--ink);border-radius:10px;padding:10px 14px;font-size:14px}
+.banner strong{color:var(--plum)}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.eyebrow{font:700 11px var(--f-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+h2{font-family:var(--f-display);font-weight:500;font-size:20px;line-height:1.2;margin:0;text-wrap:balance}
+h3{font-size:15px;margin:0}
+.muted{color:var(--muted)}
+.pill{display:inline-flex;align-items:center;gap:6px;font:700 11px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;padding:3px 9px;border-radius:999px}
+.pill.open{background:var(--accent-soft);color:var(--accent)}
+.pill.revealed{background:var(--plum-soft);color:var(--plum)}
+select,input,textarea{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 10px;max-width:100%}
+select:disabled,input:disabled,textarea:disabled{opacity:.45;cursor:not-allowed}
+textarea{width:100%;min-height:120px;resize:vertical;font-family:var(--f-mono);font-size:13px}
+input[type=text],input[type=url]{width:100%}
+label.field{display:flex;flex-direction:column;gap:6px;font-weight:600;font-size:14px}
+label.field .hint{font-weight:400;color:var(--muted);font-size:13px}
+.btn{font:600 14px var(--f-body);border-radius:999px;padding:9px 16px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.danger{color:var(--bad)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:14px}
+.roundhead{display:flex;flex-direction:column;gap:6px}
+.prompt{font-size:17px;font-weight:600;text-wrap:balance}
+.ballot{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;border-top:1px solid var(--line)}
+.ballot li{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 0;border-bottom:1px solid var(--line)}
+.ballot .n{font:700 13px var(--f-mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.song{min-width:0}
+.song .t{font-weight:700;overflow-wrap:anywhere}
+.song .a{color:var(--muted);font-size:14px;overflow-wrap:anywhere}
+.ballot select{min-width:0;width:200px}
+.verdict{display:flex;flex-direction:column;align-items:flex-end;gap:2px;text-align:right;font-size:13px}
+.verdict .who{font-weight:700;font-size:14px}
+.tag{font:700 11px var(--f-mono);padding:2px 7px;border-radius:6px}
+.tag.ok{background:var(--good-soft);color:var(--good)}
+.tag.no{background:var(--bad-soft);color:var(--bad)}
+.tag.skip{background:var(--plum-soft);color:var(--plum)}
+.scoreline{display:flex;gap:18px;flex-wrap:wrap;align-items:baseline}
+.big{font:700 34px var(--f-mono);font-variant-numeric:tabular-nums;line-height:1}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th,td{padding:10px 8px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font:700 11px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+td.num,th.num{text-align:right;font-family:var(--f-mono)}
+tr.me td{background:var(--accent-soft)}
+.rank{font:700 14px var(--f-mono);color:var(--muted)}
+.empty{text-align:center;padding:28px 18px;color:var(--muted)}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom, 0px));background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:999px;font-weight:600;font-size:14px;z-index:20}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.rules{margin:0;padding-left:18px;color:var(--muted);font-size:14px;display:flex;flex-direction:column;gap:4px}
+@media (max-width:560px){
+  .grid2{grid-template-columns:1fr}
+  .ballot li{grid-template-columns:22px minmax(0,1fr)}
+  .ballot li > select, .ballot li > .verdict{grid-column:2;justify-self:start;align-items:flex-start;text-align:left}
+  .ballot select{width:100%}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="top">
+    <span class="eyebrow">A game inside your Music League</span>
+    <h1 class="brand">Whose song <em>is it?</em></h1>
+    <p class="sub">Guess who submitted each song in the round. Points land when Music League reveals the results.</p>
+  </header>
+  <div id="banner" hidden></div>
+  <nav class="tabs" role="tablist">
+    <button role="tab" id="tab-play" data-view="play" aria-selected="true">Play</button>
+    <button role="tab" id="tab-board" data-view="leaderboard" aria-selected="false">Leaderboard</button>
+    <button role="tab" id="tab-host" data-view="host" aria-selected="false">Host</button>
+  </nav>
+  <main id="view-play"></main>
+  <main id="view-leaderboard" hidden></main>
+  <main id="view-host" hidden></main>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+
+<script>
+const PERFECT_BONUS = 3;
+let ready = false, loaded = false, offline = false;
+let rounds = [];          // [{id, title, prompt, playlist, players[], songs[{id,title,artist}], answers|null, status, createdAt}]
+let guesses = {};         // roundId -> {player: picks}; other players' picks only arrive once a round is revealed
+let started = {};         // roundId -> number of players who have guessed
+let claimed = [];         // player names already taken by a device
+let hostSet = false;
+let view = "play", currentRoundId = null;
+let hostRoundId = "new", hostDraft = null, revealDraft = {}, confirmDelete = false;
+
+const $ = (s, el=document) => el.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const rid = () => Math.random().toString(36).slice(2, 10);
+function toast(msg){ const t=$("#toast"); t.textContent=msg; t.hidden=false; clearTimeout(toast.h); toast.h=setTimeout(()=>t.hidden=true, 2600); }
+
+/* ---------- this device's identity (kept in the browser) ---------- */
+const ls = {
+  get(k){ try{ return localStorage.getItem(k); }catch{ return null; } },
+  set(k,v){ try{ v==null?localStorage.removeItem(k):localStorage.setItem(k,v); }catch{} },
+};
+let token = ls.get("wsii.token");
+if (!token){ token = Array.from(crypto.getRandomValues(new Uint8Array(16)), b=>b.toString(16).padStart(2,"0")).join(""); ls.set("wsii.token", token); }
+let myPlayer = ls.get("wsii.player") || "";
+let hostCode = ls.get("wsii.host") || "";
+let hostAuthed = false;
+
+/* ---------- server ---------- */
+async function api(path, body){
+  const res = await fetch("/api/"+path, {method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify(body||{})});
+  const data = await res.json().catch(()=>({}));
+  if (!res.ok) throw new Error(data.error || "Something went wrong. Try again.");
+  return data;
+}
+let localPicks = {};      // roundId -> picks being edited on this device
+async function refresh(){
+  try{
+    const st = await api("state", {player:myPlayer, token});
+    rounds = st.rounds; guesses = st.guesses; started = st.started; claimed = st.claimed; hostSet = st.hostSet;
+    if (myPlayer && st.me !== myPlayer){ myPlayer = ""; ls.set("wsii.player", null); }
+    offline = false; loaded = true;
+  }catch{ offline = true; }
+  render();
+}
+function myPicks(roundId){
+  if (localPicks[roundId]) return localPicks[roundId];
+  return (guesses[roundId] && guesses[roundId][myPlayer]) || {};
+}
+const saveTimers = {};
+function savePicks(roundId){
+  clearTimeout(saveTimers[roundId]);
+  saveTimers[roundId] = setTimeout(async ()=>{
+    try{ await api("guess", {player:myPlayer, token, roundId, picks:localPicks[roundId]}); delete localPicks[roundId]; refresh(); }
+    catch(e){ toast(e.message); }
+  }, 400);
+}
+
+/* ---------- scoring ---------- */
+function scoreFor(r, picks, player){
+  if (r.status!=="revealed" || !r.answers) return null;
+  let correct=0, possible=0;
+  for (const s of r.songs){
+    const ans = r.answers[s.id];
+    if (!ans || ans===player) continue;
+    possible++;
+    if (picks && picks[s.id]===ans) correct++;
+  }
+  const perfect = possible>0 && correct===possible;
+  return {correct, possible, perfect, points: correct + (perfect?PERFECT_BONUS:0)};
+}
+function guessersOf(r){
+  return Object.entries(guesses[r.id]||{}).filter(([,p])=>p && Object.keys(p).length);
+}
+function sortedRounds(){ return [...rounds].sort((a,b)=>(a.createdAt||0)-(b.createdAt||0)); }
+function allPlayers(){
+  const set = new Set(); sortedRounds().forEach(r=>(r.players||[]).forEach(p=>set.add(p)));
+  return [...set];
+}
+
+/* ---------- rendering ---------- */
+function render(){
+  if (!ready) return;
+  const b = $("#banner");
+  if (offline){ b.hidden=false; b.className="banner"; b.innerHTML="<strong>Can't reach the game right now.</strong> Check your connection. The page will keep trying."; }
+  else b.hidden=true;
+
+  document.querySelectorAll("nav.tabs button").forEach(t=>t.setAttribute("aria-selected", String(t.dataset.view===view)));
+  for (const v of ["play","leaderboard","host"]) $("#view-"+v).hidden = v!==view;
+  renderPlay(); renderBoard();
+  const host = $("#view-host");
+  if (!host.contains(document.activeElement) || document.activeElement===document.body) renderHost();
+}
+
+function roundPicker(id, selected){
+  return `<select id="${id}" aria-label="Choose round">${sortedRounds().slice().reverse().map(r=>`<option value="${esc(r.id)}" ${r.id===selected?"selected":""}>${esc(r.title)}${r.status==="open"?" (guessing open)":""}</option>`).join("")}</select>`;
+}
+
+function renderPlay(){
+  const el = $("#view-play");
+  if (!loaded){ el.innerHTML = `<div class="card empty"><p>Loading the game…</p></div>`; return; }
+  if (!rounds.length){
+    el.innerHTML = `<div class="card empty"><h2>No rounds yet</h2><p>When your league's songs are in, the host adds the round from the <strong>Host</strong> tab. Then everyone guesses here.</p></div>`;
+    return;
+  }
+  const ordered = sortedRounds();
+  if (!currentRoundId || !rounds.find(r=>r.id===currentRoundId)){
+    const open = ordered.filter(r=>r.status==="open");
+    currentRoundId = (open[open.length-1] || ordered[ordered.length-1]).id;
+  }
+  const r = rounds.find(x=>x.id===currentRoundId);
+  const picks = myPlayer ? myPicks(r.id) : {};
+  const players = r.players || [];
+  const canGuess = !!myPlayer && r.status==="open";
+  const revealed = r.status==="revealed" && r.answers;
+
+  const whoami = `<label class="field" for="whoami">Who are you in the league?
+      <select id="whoami"><option value="">Pick your name</option>${allPlayers().map(p=>{
+        const taken = claimed.includes(p) && p!==myPlayer;
+        return `<option value="${esc(p)}" ${p===myPlayer?"selected":""} ${taken?"disabled":""}>${esc(p)}${taken?" (taken)":""}</option>`;
+      }).join("")}</select></label>`;
+
+  const counts = {}; Object.values(picks).forEach(p=>counts[p]=(counts[p]||0)+1);
+  const guessers = guessersOf(r);
+
+  const songRows = r.songs.map((s,i)=>{
+    let right;
+    if (revealed){
+      const ans = r.answers[s.id]; const mineGuess = picks[s.id];
+      const pool = guessers.filter(([g])=>g!==ans);
+      const nRight = pool.filter(([,p])=>p[s.id]===ans).length;
+      let tag;
+      if (ans===myPlayer) tag = `<span class="tag skip">Your song</span>`;
+      else if (!myPlayer) tag = "";
+      else if (!mineGuess) tag = `<span class="tag no">No guess</span>`;
+      else tag = mineGuess===ans ? `<span class="tag ok">✓ You got it</span>` : `<span class="tag no">✗ You said ${esc(mineGuess)}</span>`;
+      right = `<div class="verdict"><span class="who">${esc(ans||"Not entered")}</span>${tag}<span class="muted">${nRight} of ${pool.length} guessed right</span></div>`;
+    } else {
+      const opts = players.map(p=>{
+        const label = p===myPlayer ? `That's mine (${p})` : p;
+        const used = counts[p] && picks[s.id]!==p ? " · used" : "";
+        return `<option value="${esc(p)}" ${picks[s.id]===p?"selected":""}>${esc(label+used)}</option>`;
+      }).join("");
+      right = `<select id="pick-${esc(s.id)}" data-song="${esc(s.id)}" aria-label="Who submitted ${esc(s.title)}" ${canGuess?"":"disabled"}><option value="">Who submitted this?</option>${opts}</select>`;
+    }
+    return `<li><span class="n">${String(i+1).padStart(2,"0")}</span><div class="song"><div class="t">${esc(s.title)}</div><div class="a">${esc(s.artist)}</div></div>${right}</li>`;
+  }).join("");
+
+  let summary;
+  if (revealed){
+    const sc = myPlayer ? scoreFor(r, picks, myPlayer) : null;
+    let sneak = null;
+    for (const s of r.songs){
+      const ans = r.answers[s.id]; if (!ans) continue;
+      const pool = guessers.filter(([g])=>g!==ans);
+      if (!pool.length) continue;
+      const rate = pool.filter(([,p])=>p[s.id]===ans).length / pool.length;
+      if (!sneak || rate < sneak.rate) sneak = {who:ans, rate};
+    }
+    summary = `<div class="scoreline">
+      ${sc ? `<div><div class="eyebrow">Your points</div><div class="big">${sc.points}</div></div>
+      <div><div class="eyebrow">Correct</div><div class="big">${sc.correct}/${sc.possible}</div></div>` : `<p class="muted">Pick your name above to see your score.</p>`}
+      ${sc&&sc.perfect ? `<span class="pill revealed">Perfect round +${PERFECT_BONUS}</span>`:""}
+      ${sneak ? `<div><div class="eyebrow">Sneakiest pick</div><div><strong>${esc(sneak.who)}</strong> <span class="muted">fooled ${Math.round((1-sneak.rate)*100)}% of guessers</span></div></div>`:""}
+    </div>`;
+  } else {
+    const done = Object.keys(picks).length;
+    const n = started[r.id] || 0;
+    summary = `<div class="row muted"><span>${done} of ${r.songs.length} guessed</span><span>·</span><span>${n} ${n===1?"player has":"players have"} started</span>${!myPlayer?`<span>·</span><strong style="color:var(--accent)">Pick your name first</strong>`:""}</div>`;
+  }
+
+  el.innerHTML = `<div class="card">
+    <div class="row" style="justify-content:space-between">${roundPicker("roundpick", r.id)}<span class="pill ${r.status}">${r.status==="open"?"Guessing open":"Revealed"}</span></div>
+    <div class="roundhead"><span class="eyebrow">${esc(r.title)} · ${r.songs.length} songs</span><div class="prompt">${esc(r.prompt||"")}</div>
+      ${r.playlist?`<a href="${esc(r.playlist)}" target="_blank" rel="noopener">Listen to the playlist</a>`:""}</div>
+    ${whoami}
+    ${summary}
+    <ol class="ballot">${songRows}</ol>
+    ${r.status==="open"?`<p class="muted" style="margin:0">Guesses save as you go and stay hidden from everyone until the reveal. Mark your own song as “That's mine” so it isn't counted.</p>`:""}
+  </div>`;
+}
+
+function renderBoard(){
+  const el = $("#view-leaderboard");
+  const revealedRounds = sortedRounds().filter(r=>r.status==="revealed" && r.answers);
+  const names = new Set(); revealedRounds.forEach(r=>Object.keys(guesses[r.id]||{}).forEach(p=>names.add(p)));
+  const rows = [...names].map(player=>{
+    let total=0, correct=0, possible=0; const per={};
+    for (const r of revealedRounds){
+      const p = guesses[r.id]?.[player]; if (!p || !Object.keys(p).length){ per[r.id]=null; continue; }
+      const sc = scoreFor(r, p, player); per[r.id]=sc.points; total+=sc.points; correct+=sc.correct; possible+=sc.possible;
+    }
+    return {player, total, correct, possible, per};
+  }).sort((a,b)=>b.total-a.total || b.correct-a.correct || a.player.localeCompare(b.player));
+
+  if (!revealedRounds.length || !rows.length){
+    el.innerHTML = `<div class="card empty"><h2>No scores yet</h2><p>Scores show up once a round is revealed in the Host tab.</p></div>`;
+    return;
+  }
+  let rank=0, last=null;
+  const body = rows.map((x,i)=>{ if (x.total!==last){rank=i+1; last=x.total;}
+    return `<tr class="${x.player===myPlayer?"me":""}"><td class="rank">${rank}</td><td><strong>${esc(x.player)}</strong></td><td class="num"><strong>${x.total}</strong></td>
+    <td class="num">${x.possible?Math.round(100*x.correct/x.possible)+"%":"–"}</td>
+    ${revealedRounds.map(r=>`<td class="num">${x.per[r.id]==null?"–":x.per[r.id]}</td>`).join("")}</tr>`; }).join("");
+  el.innerHTML = `<div class="card">
+    <div class="roundhead"><span class="eyebrow">Season standings</span><h2>${esc(rows[0].player)} leads with ${rows[0].total} points</h2></div>
+    <div class="tablewrap"><table><thead><tr><th>#</th><th>Player</th><th class="num">Points</th><th class="num">Hit rate</th>${revealedRounds.map(r=>`<th class="num" title="${esc(r.prompt)}">${esc(r.title)}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table></div>
+    <ul class="rules"><li>1 point for each song you match to the right person.</li><li>+${PERFECT_BONUS} bonus for a perfect round.</li><li>Your own song never counts for or against you.</li></ul>
+  </div>`;
+}
+
+function parseSongs(text){
+  return text.split(/\n/).map(l=>l.trim()).filter(Boolean).map(l=>{
+    const m = l.split(/\t|\s+[—–-]\s+|\s+by\s+/i);
+    return {title:(m[0]||"").trim(), artist:(m.slice(1).join(" - ")||"").trim()};
+  });
+}
+function draftFrom(r){
+  if (!r){
+    const prev = sortedRounds().slice(-1)[0];
+    return {title:`Round ${rounds.length+1}`, prompt:"", playlist:"", players:(prev?.players||[]).join("\n"), songs:""};
+  }
+  return {title:r.title, prompt:r.prompt||"", playlist:r.playlist||"", players:(r.players||[]).join("\n"), songs:r.songs.map(s=>s.artist?`${s.title} - ${s.artist}`:s.title).join("\n")};
+}
+
+function renderHost(){
+  const el = $("#view-host");
+  if (!hostAuthed){
+    el.innerHTML = `<div class="card">
+      <h2>${hostSet?"Enter the host code":"Choose a host code"}</h2>
+      <p class="muted" style="margin:0">${hostSet?"Only the host can add rounds and reveal answers.":"This is the first visit to the Host tab. The code you choose now becomes the host code, so keep it to yourself."}</p>
+      <form id="hostlogin" class="row"><input type="password" id="h-code" autocomplete="current-password" placeholder="Host code" style="max-width:260px"><button class="btn primary" type="submit">${hostSet?"Unlock":"Set code"}</button></form>
+    </div>`;
+    return;
+  }
+  const r = hostRoundId==="new" ? null : rounds.find(x=>x.id===hostRoundId);
+  if (hostRoundId!=="new" && !r){ hostRoundId="new"; hostDraft=null; }
+  if (!hostDraft) hostDraft = draftFrom(r);
+
+  const picker = `<select id="hostpick" aria-label="Round to manage"><option value="new" ${hostRoundId==="new"?"selected":""}>+ New round</option>${sortedRounds().slice().reverse().map(x=>`<option value="${esc(x.id)}" ${x.id===hostRoundId?"selected":""}>${esc(x.title)}</option>`).join("")}</select>`;
+
+  const form = `<div class="card">
+    <div class="row" style="justify-content:space-between"><h2>${r?"Edit round":"Add a round"}</h2>${picker}</div>
+    ${r&&r.status==="revealed"?`<p class="banner" style="margin:0">This round is revealed. Editing songs may change scores.</p>`:""}
+    <div class="grid2">
+      <label class="field" for="h-title">Round name<input type="text" id="h-title" value="${esc(hostDraft.title)}"></label>
+      <label class="field" for="h-playlist">Playlist link <span class="hint">Optional, from Music League or Spotify</span><input type="url" id="h-playlist" value="${esc(hostDraft.playlist)}" placeholder="https://open.spotify.com/playlist/…"></label>
+    </div>
+    <label class="field" for="h-prompt">Prompt<input type="text" id="h-prompt" value="${esc(hostDraft.prompt)}" placeholder="e.g. Songs that make you drive too fast"></label>
+    <div class="grid2">
+      <label class="field" for="h-players">Players <span class="hint">One name per line</span><textarea id="h-players">${esc(hostDraft.players)}</textarea></label>
+      <label class="field" for="h-songs">Songs <span class="hint">One per line: Title - Artist</span><textarea id="h-songs">${esc(hostDraft.songs)}</textarea></label>
+    </div>
+    <div class="row">
+      <button class="btn primary" id="h-save">${r?"Save changes":"Open round for guessing"}</button>
+      ${r?`<button class="btn danger" id="h-delete">${confirmDelete?"Tap again to delete":"Delete round"}</button>`:""}
+    </div>
+  </div>`;
+
+  let reveal = "";
+  if (r){
+    const players = r.players||[];
+    const src = r.status==="revealed" && r.answers ? {...r.answers, ...revealDraft} : revealDraft;
+    reveal = `<div class="card">
+      <div class="roundhead"><span class="eyebrow">After Music League reveals</span><h2>Enter who really submitted each song</h2>
+      <p class="muted" style="margin:0">Answers stay on your screen until you press reveal, so nobody can peek.</p></div>
+      <ol class="ballot">${r.songs.map((s,i)=>`<li><span class="n">${String(i+1).padStart(2,"0")}</span><div class="song"><div class="t">${esc(s.title)}</div><div class="a">${esc(s.artist)}</div></div>
+        <select data-ans="${esc(s.id)}" id="ans-${esc(s.id)}" aria-label="Submitter of ${esc(s.title)}"><option value="">Submitter</option>${players.map(p=>`<option value="${esc(p)}" ${src[s.id]===p?"selected":""}>${esc(p)}</option>`).join("")}</select></li>`).join("")}</ol>
+      <div class="row">
+        <button class="btn primary" id="h-reveal">${r.status==="revealed"?"Update answers":"Reveal and score"}</button>
+        ${r.status==="revealed"?`<button class="btn" id="h-reopen">Reopen guessing</button>`:""}
+      </div>
+    </div>`;
+  }
+
+  const unlock = claimed.length ? `<div class="card">
+    <div class="roundhead"><h2>Unlock a player name</h2><p class="muted" style="margin:0">Each name works on one device. If someone switches phones or picked the wrong name, unlock it here so they can pick it again.</p></div>
+    <div class="row"><select id="h-release">${claimed.map(p=>`<option value="${esc(p)}">${esc(p)}</option>`).join("")}</select><button class="btn" id="h-release-btn">Unlock</button></div>
+  </div>` : "";
+  el.innerHTML = form + reveal + unlock;
+}
+
+/* ---------- events ---------- */
+async function hostCall(path, body){ return api("host/"+path, {code:hostCode, ...body}); }
+
+document.addEventListener("submit", async e=>{
+  if (e.target.id!=="hostlogin") return;
+  e.preventDefault();
+  const code = $("#h-code").value;
+  try{
+    const res = await api("host/login", {code});
+    hostCode = code; ls.set("wsii.host", code); hostAuthed = true; hostSet = true;
+    toast(res.created ? "Host code set" : "Unlocked"); renderHost();
+  }catch(err){ toast(err.message); }
+});
+document.addEventListener("click", async e=>{
+  const tab = e.target.closest("nav.tabs button");
+  if (tab){ view = tab.dataset.view; try{ history.replaceState(null,"","#"+view);}catch{} render(); return; }
+  if (e.target.id==="h-save") return hostSave();
+  if (e.target.id==="h-delete"){
+    if (!confirmDelete){ confirmDelete=true; renderHost(); return; }
+    const id = hostRoundId; confirmDelete=false;
+    try{ await hostCall("delete", {id}); hostRoundId="new"; hostDraft=null; toast("Round deleted"); await refresh(); }catch(err){ toast(err.message); }
+    renderHost(); return;
+  }
+  if (e.target.id==="h-reveal") return hostReveal();
+  if (e.target.id==="h-reopen"){
+    const r = rounds.find(x=>x.id===hostRoundId); if (!r) return;
+    revealDraft = {...(r.answers||{})};
+    try{ await hostCall("round", {round:{...r, status:"open", answers:null}}); toast("Guessing reopened"); await refresh(); }catch(err){ toast(err.message); }
+    renderHost(); return;
+  }
+  if (e.target.id==="h-release-btn"){
+    const player = $("#h-release").value;
+    try{ await hostCall("release", {player}); toast(`${player} can pick their name again`); await refresh(); }catch(err){ toast(err.message); }
+    renderHost();
+  }
+});
+document.addEventListener("input", e=>{
+  const map = {"h-title":"title","h-prompt":"prompt","h-playlist":"playlist","h-players":"players","h-songs":"songs"};
+  if (map[e.target.id] && hostDraft) hostDraft[map[e.target.id]] = e.target.value;
+});
+document.addEventListener("change", async e=>{
+  const t = e.target;
+  if (t.id==="roundpick"){ currentRoundId = t.value; renderPlay(); return; }
+  if (t.id==="hostpick"){ hostRoundId = t.value; hostDraft=null; revealDraft={}; confirmDelete=false; renderHost(); return; }
+  if (t.id==="whoami"){
+    const name = t.value;
+    if (!name){ myPlayer=""; ls.set("wsii.player", null); render(); return; }
+    try{ await api("claim", {player:name, token}); myPlayer = name; ls.set("wsii.player", name); toast(`You're playing as ${name}`); await refresh(); }
+    catch(err){ toast(err.message); render(); }
+    return;
+  }
+  if (t.dataset.song){
+    const p = localPicks[currentRoundId] ||= {...myPicks(currentRoundId)};
+    if (t.value) p[t.dataset.song] = t.value; else delete p[t.dataset.song];
+    savePicks(currentRoundId); renderPlay(); return;
+  }
+  if (t.dataset.ans){ revealDraft[t.dataset.ans] = t.value; }
+});
+
+async function hostSave(){
+  const d = hostDraft;
+  const players = [...new Set(d.players.split("\n").map(s=>s.trim()).filter(Boolean))];
+  const parsed = parseSongs(d.songs);
+  if (players.length<2){ toast("Add at least two players."); return; }
+  if (!parsed.length){ toast("Add the round's songs, one per line."); return; }
+  const existing = hostRoundId==="new" ? null : rounds.find(x=>x.id===hostRoundId);
+  // keep song ids stable when titles match so existing guesses survive edits
+  const oldByKey = new Map((existing?.songs||[]).map(s=>[(s.title+"|"+s.artist).toLowerCase(), s.id]));
+  const songs = parsed.map(s=>({id: oldByKey.get((s.title+"|"+s.artist).toLowerCase()) || rid(), ...s}));
+  const r = existing ? {...existing, title:d.title.trim()||existing.title, prompt:d.prompt.trim(), playlist:d.playlist.trim(), players, songs}
+                     : {id:rid(), title:d.title.trim()||`Round ${rounds.length+1}`, prompt:d.prompt.trim(), playlist:d.playlist.trim(), players, songs, status:"open", answers:null, createdAt:Date.now()};
+  try{
+    await hostCall("round", {round:r});
+    hostRoundId = r.id; hostDraft = null; currentRoundId = r.id;
+    toast(existing ? "Round saved" : "Round is open for guessing");
+    await refresh(); renderHost();
+  }catch(err){ toast(err.message); }
+}
+async function hostReveal(){
+  const r = rounds.find(x=>x.id===hostRoundId); if (!r) return;
+  const answers = {...(r.status==="revealed"&&r.answers?r.answers:{}), ...revealDraft};
+  const missing = r.songs.filter(s=>!answers[s.id]).length;
+  if (missing){ toast(`Pick a submitter for ${missing} more ${missing===1?"song":"songs"}.`); return; }
+  try{ await hostCall("round", {round:{...r, answers, status:"revealed"}}); revealDraft={}; toast("Revealed. Scores are in."); currentRoundId=r.id; await refresh(); renderHost(); }
+  catch(err){ toast(err.message); }
+}
+
+/* ---------- boot ---------- */
+(function initView(){
+  const h = (location.hash||"").slice(1);
+  if (["play","leaderboard","host"].includes(h)) view = h;
+})();
+ready = true; render();
+(async ()=>{
+  if (hostCode){ try{ await api("host/login", {code:hostCode}); hostAuthed = true; }catch{ hostCode=""; ls.set("wsii.host", null); } }
+  await refresh();
+  setInterval(()=>{ if (!document.hidden && !Object.keys(localPicks).length) refresh(); }, 20000);
+  document.addEventListener("visibilitychange", ()=>{ if (!document.hidden) refresh(); });
+})();
+</script>
+</body>
+</html>
