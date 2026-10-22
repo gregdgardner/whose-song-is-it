@@ -92,6 +92,7 @@ tr.me td{background:var(--accent-soft)}
 .rank{font:700 14px var(--f-mono);color:var(--muted)}
 .empty{text-align:center;padding:28px 18px;color:var(--muted)}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom, 0px));background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:999px;font-weight:600;font-size:14px;z-index:20}
+.submitbar{position:sticky;bottom:0;bottom:env(safe-area-inset-bottom, 0px);display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding-block:12px;background:var(--surface);border-top:1px solid var(--line)}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 .rules{margin:0;padding-left:18px;color:var(--muted);font-size:14px;display:flex;flex-direction:column;gap:4px}
 @media (max-width:560px){
@@ -174,13 +175,23 @@ function myPicks(roundId){
   const server = (guesses[roundId] && guesses[roundId][myPlayer]) || {};
   return localPicks[roundId] ? localPicks[roundId] : server;
 }
-const saveTimers = {};
-function savePicks(roundId){
-  clearTimeout(saveTimers[roundId]);
-  saveTimers[roundId] = setTimeout(async ()=>{
-    try{ await api("guess", {player:myPlayer, token, roundId, picks:localPicks[roundId]}); delete saveTimers[roundId]; }
-    catch(e){ delete saveTimers[roundId]; nameError = e.message; toast(e.message); render(); }
-  }, 400);
+// What this device last submitted per round, so the button knows whether there are unsent changes.
+let submitted = {};
+try{ submitted = JSON.parse(ls.get("wsii.submitted") || "{}") || {}; }catch{ submitted = {}; }
+const sameJSON = (a,b) => JSON.stringify(Object.entries(a||{}).sort()) === JSON.stringify(Object.entries(b||{}).sort());
+function lastSubmitted(roundId){
+  return submitted[roundId] || (guesses[roundId] && guesses[roundId][myPlayer]) || null;
+}
+let submitting = false;
+async function submitPicks(roundId){
+  const picks = {...myPicks(roundId)};
+  submitting = true; renderPlay();
+  try{
+    await api("guess", {player:myPlayer, token, roundId, picks});
+    submitted[roundId] = picks; ls.set("wsii.submitted", JSON.stringify(submitted));
+    toast("Guesses submitted"); nameError = ""; refresh();
+  }catch(e){ nameError = e.message; toast(e.message); }
+  submitting = false; render();
 }
 
 /* ---------- scoring ---------- */
@@ -294,7 +305,7 @@ function renderPlay(){
   } else {
     const done = Object.keys(picks).length;
     const n = started[r.id] || 0;
-    summary = `<div class="row muted"><span>${done} of ${r.songs.length} guessed</span><span>·</span><span>${n} ${n===1?"player has":"players have"} started</span>${!myPlayer?`<span>·</span><strong style="color:var(--accent)">Pick your name first</strong>`:""}</div>`;
+    summary = `<div class="row muted"><span>${done} of ${r.songs.length} guessed</span><span>·</span><span>${n} ${n===1?"player has":"players have"} submitted</span>${!myPlayer?`<span>·</span><strong style="color:var(--accent)">Pick your name first</strong>`:""}</div>`;
   }
 
   el.innerHTML = `<div class="card">
@@ -305,8 +316,25 @@ function renderPlay(){
     ${nameNote}
     ${summary}
     <ol class="ballot">${songRows}</ol>
-    ${r.status==="open"?`<p class="muted" style="margin:0">Guesses save as you go and stay hidden from everyone until the reveal. Mark your own song as “That's mine” so it isn't counted.</p>`:""}
+    ${r.status==="open" ? submitBar(r, picks) : ""}
   </div>`;
+}
+
+function submitBar(r, picks){
+  const done = Object.keys(picks).length, total = r.songs.length;
+  const last = lastSubmitted(r.id);
+  const dirty = !last || !sameJSON(last, picks);
+  let status, label;
+  if (!myPlayer){ status = "Pick your name to start guessing."; label = "Submit my guesses"; }
+  else if (!last){ status = done===total ? "All songs guessed. Submit when you're happy." : `${total-done} ${total-done===1?"song":"songs"} left to guess. You can submit now and finish later.`; label = done===total ? "Submit my guesses" : `Submit ${done} of ${total} guesses`; }
+  else if (dirty){ status = "You have changes that aren't submitted yet."; label = "Submit changes"; }
+  else { status = `✓ Submitted ${Object.keys(last).length} of ${total}. You can change and resubmit until the reveal.`; label = "Submitted"; }
+  const disabled = !myPlayer || !done || !dirty || submitting;
+  return `<div class="submitbar">
+    <button class="btn primary" id="submit-picks" ${disabled?"disabled":""}>${submitting?"Submitting…":esc(label)}</button>
+    <span class="muted">${esc(status)}</span>
+  </div>
+  <p class="muted" style="margin:0">Guesses stay hidden from everyone until the reveal. Mark your own song as “That's mine” so it isn't counted.</p>`;
 }
 
 function renderBoard(){
@@ -425,6 +453,7 @@ document.addEventListener("submit", async e=>{
 document.addEventListener("click", async e=>{
   const tab = e.target.closest("nav.tabs button");
   if (tab){ view = tab.dataset.view; try{ history.replaceState(null,"","#"+view);}catch{} render(); return; }
+  if (e.target.id==="submit-picks") return submitPicks(currentRoundId);
   if (e.target.id==="h-save") return hostSave();
   if (e.target.id==="h-delete"){
     if (!confirmDelete){ confirmDelete=true; renderHost(); return; }
@@ -464,7 +493,7 @@ document.addEventListener("change", async e=>{
     const p = localPicks[currentRoundId] ||= {...myPicks(currentRoundId)};
     if (t.value) p[t.dataset.song] = t.value; else delete p[t.dataset.song];
     ls.set("wsii.picks", JSON.stringify(localPicks));
-    savePicks(currentRoundId); renderPlay(); return;
+    renderPlay(); return;
   }
   if (t.dataset.ans){ revealDraft[t.dataset.ans] = t.value; }
 });
@@ -507,7 +536,7 @@ ready = true; render();
   if (hostCode){ try{ await api("host/login", {code:hostCode}); hostAuthed = true; }catch{ hostCode=""; ls.set("wsii.host", null); } }
   await refresh();
   // skip background refreshes while someone has a dropdown open, so it doesn't snap shut
-  setInterval(()=>{ const a=document.activeElement; if (!document.hidden && !Object.keys(saveTimers).length && !(a && a.tagName==="SELECT")) refresh(); }, 20000);
+  setInterval(()=>{ const a=document.activeElement; if (!document.hidden && !submitting && !(a && a.tagName==="SELECT")) refresh(); }, 20000);
   document.addEventListener("visibilitychange", ()=>{ if (!document.hidden) refresh(); });
 })();
 </script>
