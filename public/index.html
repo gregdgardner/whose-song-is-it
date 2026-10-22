@@ -132,6 +132,7 @@ let guesses = {};         // roundId -> {player: picks}; other players' picks on
 let started = {};         // roundId -> number of players who have guessed
 let claimed = [];         // player names already taken by a device
 let hostSet = false;
+let nameError = "";
 let view = "play", currentRoundId = null;
 let hostRoundId = "new", hostDraft = null, revealDraft = {}, confirmDelete = false;
 
@@ -245,6 +246,7 @@ function renderPlay(){
         return `<option value="${esc(p)}" ${p===myPlayer?"selected":""} ${taken?"disabled":""}>${esc(p)}${taken?" (taken)":""}</option>`;
       }).join("")}</select></label>`;
 
+  const nameNote = nameError ? `<p class="banner" role="alert" style="margin:0"><strong>Couldn't pick that name.</strong> ${esc(nameError)}</p>` : "";
   const counts = {}; Object.values(picks).forEach(p=>counts[p]=(counts[p]||0)+1);
   const guessers = guessersOf(r);
 
@@ -299,6 +301,7 @@ function renderPlay(){
     <div class="roundhead"><span class="eyebrow">${esc(r.title)} · ${r.songs.length} songs</span><div class="prompt">${esc(r.prompt||"")}</div>
       ${r.playlist?`<a href="${esc(r.playlist)}" target="_blank" rel="noopener">Listen to the playlist</a>`:""}</div>
     ${whoami}
+    ${nameNote}
     ${summary}
     <ol class="ballot">${songRows}</ol>
     ${r.status==="open"?`<p class="muted" style="margin:0">Guesses save as you go and stay hidden from everyone until the reveal. Mark your own song as “That's mine” so it isn't counted.</p>`:""}
@@ -452,8 +455,8 @@ document.addEventListener("change", async e=>{
   if (t.id==="whoami"){
     const name = t.value;
     if (!name){ myPlayer=""; ls.set("wsii.player", null); render(); return; }
-    try{ await api("claim", {player:name, token}); myPlayer = name; ls.set("wsii.player", name); toast(`You're playing as ${name}`); await refresh(); }
-    catch(err){ toast(err.message); render(); }
+    try{ await api("claim", {player:name, token}); nameError = ""; myPlayer = name; ls.set("wsii.player", name); toast(`You're playing as ${name}`); await refresh(); }
+    catch(err){ nameError = err.message; render(); }
     return;
   }
   if (t.dataset.song){

@@ -10,7 +10,8 @@ import seed from "./seed.mjs";
 //   meta/seeded                      set once the bundled seed has been loaded
 
 const store = () => getStore({ name: "game", consistency: "strong" });
-const enc = s => encodeURIComponent(String(s));
+// Player names can hold any character, so keys use a short hash of the name instead.
+const enc = s => createHash("sha256").update(String(s)).digest("hex").slice(0, 24);
 const hash = s => createHash("sha256").update(String(s)).digest("hex");
 const json = (body, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
@@ -58,6 +59,11 @@ function cleanRound(r) {
 }
 
 export default async (req) => {
+  try { return await handle(req); }
+  catch (e) { console.error(e); return fail("The game server hit a problem: " + (e && e.message || e), 500); }
+};
+
+async function handle(req) {
   const s = store();
   const route = new URL(req.url).pathname.replace(/^\/api\/?/, "");
   const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
@@ -137,6 +143,6 @@ export default async (req) => {
   }
 
   return fail("Not found.", 404);
-};
+}
 
 export const config = { path: "/api/*" };
