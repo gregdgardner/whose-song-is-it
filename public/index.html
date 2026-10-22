@@ -159,26 +159,27 @@ async function api(path, body){
   if (!res.ok) throw new Error(data.error || "Something went wrong. Try again.");
   return data;
 }
-let localPicks = {};      // roundId -> picks being edited on this device
+// This device's own picks, kept locally too so they never flicker while the server catches up.
+let localPicks = {};
+try{ localPicks = JSON.parse(ls.get("wsii.picks") || "{}") || {}; }catch{ localPicks = {}; }
 async function refresh(){
   try{
     const st = await api("state", {player:myPlayer, token});
     rounds = st.rounds; guesses = st.guesses; started = st.started; claimed = st.claimed; hostSet = st.hostSet;
-    if (myPlayer && st.me !== myPlayer){ myPlayer = ""; ls.set("wsii.player", null); }
     offline = false; loaded = true;
   }catch{ offline = true; }
   render();
 }
 function myPicks(roundId){
-  if (localPicks[roundId]) return localPicks[roundId];
-  return (guesses[roundId] && guesses[roundId][myPlayer]) || {};
+  const server = (guesses[roundId] && guesses[roundId][myPlayer]) || {};
+  return localPicks[roundId] ? localPicks[roundId] : server;
 }
 const saveTimers = {};
 function savePicks(roundId){
   clearTimeout(saveTimers[roundId]);
   saveTimers[roundId] = setTimeout(async ()=>{
-    try{ await api("guess", {player:myPlayer, token, roundId, picks:localPicks[roundId]}); delete localPicks[roundId]; refresh(); }
-    catch(e){ toast(e.message); }
+    try{ await api("guess", {player:myPlayer, token, roundId, picks:localPicks[roundId]}); delete saveTimers[roundId]; }
+    catch(e){ delete saveTimers[roundId]; nameError = e.message; toast(e.message); render(); }
   }, 400);
 }
 
@@ -462,6 +463,7 @@ document.addEventListener("change", async e=>{
   if (t.dataset.song){
     const p = localPicks[currentRoundId] ||= {...myPicks(currentRoundId)};
     if (t.value) p[t.dataset.song] = t.value; else delete p[t.dataset.song];
+    ls.set("wsii.picks", JSON.stringify(localPicks));
     savePicks(currentRoundId); renderPlay(); return;
   }
   if (t.dataset.ans){ revealDraft[t.dataset.ans] = t.value; }
@@ -505,7 +507,7 @@ ready = true; render();
   if (hostCode){ try{ await api("host/login", {code:hostCode}); hostAuthed = true; }catch{ hostCode=""; ls.set("wsii.host", null); } }
   await refresh();
   // skip background refreshes while someone has a dropdown open, so it doesn't snap shut
-  setInterval(()=>{ const a=document.activeElement; if (!document.hidden && !Object.keys(localPicks).length && !(a && a.tagName==="SELECT")) refresh(); }, 20000);
+  setInterval(()=>{ const a=document.activeElement; if (!document.hidden && !Object.keys(saveTimers).length && !(a && a.tagName==="SELECT")) refresh(); }, 20000);
   document.addEventListener("visibilitychange", ()=>{ if (!document.hidden) refresh(); });
 })();
 </script>

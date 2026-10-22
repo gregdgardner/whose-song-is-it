@@ -101,7 +101,10 @@ async function handle(req) {
 
   if (route === "guess" && req.method === "POST") {
     const { player, token, roundId, picks } = body;
-    if (!(await ownsName(s, player, token))) return fail("This device isn't signed in as " + player + ".", 403);
+    if (!player || !token || String(token).length < 16) return fail("Pick your name first.", 403);
+    const claim = await s.get("claims/" + enc(player), { type: "json" });
+    if (claim && claim.tokenHash !== hash(token)) return fail(`${player} is already playing on another device. Ask the host to unlock the name.`, 403);
+    if (!claim) await s.setJSON("claims/" + enc(player), { player, tokenHash: hash(token), at: Date.now() });
     const round = await s.get("rounds/" + roundId, { type: "json" });
     if (!round) return fail("That round no longer exists.", 404);
     if (round.status !== "open") return fail("Guessing is closed for this round.", 409);
