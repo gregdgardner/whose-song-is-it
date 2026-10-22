@@ -1,6 +1,7 @@
 import { getStore } from "@netlify/blobs";
 import { createHash, randomBytes } from "node:crypto";
 import seed from "./seed.mjs";
+import imports from "./imports.mjs";
 
 // Keys in the "game" store:
 //   rounds/<roundId>                 round (answers only present once revealed)
@@ -8,6 +9,7 @@ import seed from "./seed.mjs";
 //   claims/<player>                  hash of the browser token that owns a player name
 //   meta/host                        hash of the host code
 //   meta/seeded                      set once the bundled seed has been loaded
+//   meta/imported/<roundId>          set once a round from imports.mjs has been added (so deleting it sticks)
 
 const store = () => getStore({ name: "game", consistency: "strong" });
 // Player names can hold any character, so keys use a short hash of the name instead.
@@ -24,6 +26,11 @@ async function listJSON(s, prefix) {
 }
 
 async function ensureSeeded(s) {
+  for (const r of imports.rounds || []) {
+    if (await s.get("meta/imported/" + r.id)) continue;
+    if (!(await s.get("rounds/" + r.id))) await s.setJSON("rounds/" + r.id, cleanRound(r));
+    await s.set("meta/imported/" + r.id, new Date().toISOString());
+  }
   if (await s.get("meta/seeded")) return;
   for (const r of seed.rounds || []) await s.setJSON("rounds/" + r.id, r);
   for (const g of seed.guesses || []) await s.setJSON(`guesses/${g.roundId}/${enc(g.player)}`, { player: g.player, roundId: g.roundId, picks: g.picks });

@@ -366,6 +366,20 @@ function renderBoard(){
   </div>`;
 }
 
+// Music League's competitors.csv has "ID,Name" columns; repeated names get a number so each stays pickable.
+function namesFromCSV(text){
+  const rows = text.split(/\r?\n/).filter(l=>l.trim()).map(l=>{
+    const cells=[]; let cur="", q=false;
+    for (const ch of l){ if (ch==='"') q=!q; else if (ch===',' && !q){ cells.push(cur); cur=""; } else cur+=ch; }
+    cells.push(cur); return cells.map(c=>c.trim());
+  });
+  if (!rows.length) return [];
+  let col = rows[0].findIndex(h=>/^name$/i.test(h));
+  const body = col>=0 ? rows.slice(1) : rows;
+  if (col<0) col = rows[0].length>1 ? rows[0].length-1 : 0;
+  const seen = {};
+  return body.map(r=>r[col]).filter(Boolean).map(n=>{ seen[n]=(seen[n]||0)+1; return seen[n]>1 ? `${n} (${seen[n]})` : n; });
+}
 function parseSongs(text){
   return text.split(/\n/).map(l=>l.trim()).filter(Boolean).map(l=>{
     const m = l.split(/\t|\s+[—–-]\s+|\s+by\s+/i);
@@ -405,7 +419,8 @@ function renderHost(){
     </div>
     <label class="field" for="h-prompt">Prompt<input type="text" id="h-prompt" value="${esc(hostDraft.prompt)}" placeholder="e.g. Songs that make you drive too fast"></label>
     <div class="grid2">
-      <label class="field" for="h-players">Players <span class="hint">One name per line</span><textarea id="h-players">${esc(hostDraft.players)}</textarea></label>
+      <label class="field" for="h-players">Players <span class="hint">One name per line, or load Music League's competitors.csv</span><textarea id="h-players">${esc(hostDraft.players)}</textarea>
+        <input type="file" id="h-players-file" accept=".csv,text/csv"></label>
       <label class="field" for="h-songs">Songs <span class="hint">One per line: Title - Artist</span><textarea id="h-songs">${esc(hostDraft.songs)}</textarea></label>
     </div>
     <div class="row">
@@ -496,6 +511,11 @@ document.addEventListener("change", async e=>{
     renderPlay(); return;
   }
   if (t.dataset.ans){ revealDraft[t.dataset.ans] = t.value; }
+  if (t.id==="h-players-file" && t.files[0]){
+    const names = namesFromCSV(await t.files[0].text());
+    if (!names.length){ toast("Couldn't find a Name column in that file."); return; }
+    hostDraft.players = names.join("\n"); renderHost(); toast(`Loaded ${names.length} players`);
+  }
 });
 
 async function hostSave(){
