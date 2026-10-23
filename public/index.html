@@ -5,99 +5,92 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Whose Song Is It (beta)</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap">
 <style>
-/* Layout: one narrow column, a sticky tab bar, and each song as a row on a "ballot" with its guess select on the right */
+/* Layout: a purple app bar, then one centered column of white bordered cards on a pale grey page,
+   in the same visual family as Music League so the two feel related. Light theme only, like Music League. */
 :root{
-  --bg:#f6f4fb; --surface:#ffffff; --ink:#1d1a2e; --muted:#6a6582; --line:#e3dff0;
-  --accent:#e2541b; --accent-ink:#ffffff; --accent-soft:#fde7dc;
-  --plum:#4a3aa8; --plum-soft:#ebe8fb;
-  --good:#1f8a52; --good-soft:#dcf3e6; --bad:#c23a3a; --bad-soft:#f9e0e0;
-  --f-display:"Unbounded", "Arial Black", system-ui, sans-serif;
-  --f-body:"Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --f-mono:"JetBrains Mono", ui-monospace, Menlo, monospace;
-}
-@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
-  --bg:#13111d; --surface:#1c1a2a; --ink:#ece9f7; --muted:#a29dbb; --line:#2f2b45;
-  --accent:#ff7a3d; --accent-ink:#1a0d05; --accent-soft:#3a2216;
-  --plum:#a99cff; --plum-soft:#29244a;
-  --good:#54d38f; --good-soft:#163527; --bad:#ff7d7d; --bad-soft:#3b1c1f; color-scheme:dark;
-}}
-:root[data-theme="dark"]{
-  --bg:#13111d; --surface:#1c1a2a; --ink:#ece9f7; --muted:#a29dbb; --line:#2f2b45;
-  --accent:#ff7a3d; --accent-ink:#1a0d05; --accent-soft:#3a2216;
-  --plum:#a99cff; --plum-soft:#29244a;
-  --good:#54d38f; --good-soft:#163527; --bad:#ff7d7d; --bad-soft:#3b1c1f; color-scheme:dark;
+  color-scheme:light;
+  --bar:#931dc0; --bar-ink:#ffffff;
+  --bg:#f7f7f9; --surface:#ffffff; --ink:#212529; --muted:#6c757d; --line:#dee2e6;
+  --accent:#931dc0; --accent-ink:#ffffff; --accent-soft:#f3e3f9;
+  --good:#1e7e45; --good-soft:#dff3e6; --bad:#c0392b; --bad-soft:#fbe4e1;
+  --f-body:"Poppins", system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 *{box-sizing:border-box}
 [hidden]{display:none!important}
-html{color-scheme:light}
-@media (prefers-color-scheme: dark){html{color-scheme:dark}}
-body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5;
-  padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px));padding-block:0 48px}
-body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top, 0px);z-index:10;background:var(--bg)}
-.wrap{max-width:720px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
-header.top{padding-top:28px;display:flex;flex-direction:column;gap:6px}
-.brand{font-family:var(--f-display);font-weight:700;font-size:clamp(26px,6vw,36px);line-height:1.05;letter-spacing:-.01em;text-wrap:balance;margin:0}
-.brand .beta{font-family:var(--f-body);font-weight:600;font-size:.45em;color:var(--muted);letter-spacing:0;vertical-align:middle}
-.brand em{font-style:normal;color:var(--accent)}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5;padding-block:0 48px}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top, 0px);z-index:10;background:var(--bar)}
+.appbar{background:var(--bar);color:var(--bar-ink);padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px))}
+.appbar .inner{max-width:760px;margin:0 auto;min-height:64px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.brand{font-weight:700;font-size:20px;line-height:1.2;margin:0;letter-spacing:-.01em}
+.brand .beta{font-weight:500;font-size:.75em;opacity:.8}
+.appbar .tagline{font-size:13px;opacity:.85}
+.wrap{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:20px;padding-top:24px;
+  padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px))}
 .sub{color:var(--muted);margin:0;max-width:60ch}
-nav.tabs{position:sticky;top:env(safe-area-inset-top, 0px);z-index:5;background:var(--bg);display:flex;gap:4px;padding-block:8px;border-bottom:1px solid var(--line)}
-nav.tabs button{font:600 14px var(--f-body);background:none;border:0;color:var(--muted);padding:8px 12px;border-radius:999px;cursor:pointer}
-nav.tabs button[aria-selected="true"]{background:var(--ink);color:var(--bg)}
-nav.tabs button:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.banner{background:var(--plum-soft);color:var(--ink);border-radius:10px;padding:10px 14px;font-size:14px}
-.banner strong{color:var(--plum)}
+nav.tabs{position:sticky;top:env(safe-area-inset-top, 0px);z-index:5;background:var(--surface);display:flex;border:1px solid var(--line);border-radius:4px}
+nav.tabs button{flex:1;font:500 17px var(--f-body);background:none;border:0;border-bottom:3px solid transparent;color:var(--ink);padding:12px 8px 9px;cursor:pointer}
+nav.tabs button[aria-selected="true"]{color:var(--accent);border-bottom-color:var(--accent)}
+nav.tabs button:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+a{color:var(--accent);font-weight:500}
+.banner{background:var(--accent-soft);color:var(--ink);border-radius:4px;padding:10px 14px;font-size:14px}
+.banner strong{color:var(--accent)}
 .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-.eyebrow{font:700 11px var(--f-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
-h2{font-family:var(--f-display);font-weight:500;font-size:20px;line-height:1.2;margin:0;text-wrap:balance}
+.eyebrow{font-size:13px;letter-spacing:.02em;text-transform:uppercase;color:var(--muted)}
+h2{font-weight:500;font-size:22px;line-height:1.25;margin:0;text-wrap:balance}
 h3{font-size:15px;margin:0}
 .muted{color:var(--muted)}
-.pill{display:inline-flex;align-items:center;gap:6px;font:700 11px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;padding:3px 9px;border-radius:999px}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:500;letter-spacing:.03em;text-transform:uppercase;padding:3px 10px;border-radius:999px}
 .pill.open{background:var(--accent-soft);color:var(--accent)}
-.pill.revealed{background:var(--plum-soft);color:var(--plum)}
-select,input,textarea{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 10px;max-width:100%}
+.pill.revealed{background:#eceef1;color:var(--muted)}
+select,input,textarea{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:8px 10px;max-width:100%}
 select:disabled,input:disabled,textarea:disabled{opacity:.45;cursor:not-allowed}
-textarea{width:100%;min-height:120px;resize:vertical;font-family:var(--f-mono);font-size:13px}
+textarea{width:100%;min-height:120px;resize:vertical;font-size:13px}
 input[type=text],input[type=url]{width:100%}
-label.field{display:flex;flex-direction:column;gap:6px;font-weight:600;font-size:14px}
+label.field{display:flex;flex-direction:column;gap:6px;font-weight:500;font-size:14px}
 label.field .hint{font-weight:400;color:var(--muted);font-size:13px}
-.btn{font:600 14px var(--f-body);border-radius:999px;padding:9px 16px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+.btn{font:500 15px var(--f-body);border-radius:4px;padding:9px 18px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 .btn.danger{color:var(--bad)}
 .btn:disabled{opacity:.5;cursor:not-allowed}
-.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:14px}
-.roundhead{display:flex;flex-direction:column;gap:6px}
-.prompt{font-size:17px;font-weight:600;text-wrap:balance}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:24px;display:flex;flex-direction:column;gap:16px}
+.roundhead{display:flex;flex-direction:column;gap:4px}
+.roundtitle{font-weight:500;font-size:clamp(22px,4.5vw,28px);line-height:1.2;margin:0;text-wrap:balance}
+.prompt{font-size:16px;margin:0}
 .ballot{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;border-top:1px solid var(--line)}
 .ballot li{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 0;border-bottom:1px solid var(--line)}
-.ballot .n{font:700 13px var(--f-mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.ballot .n{font-weight:500;font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
 .song{min-width:0}
-.song .t{font-weight:700;overflow-wrap:anywhere}
+.song .t{font-weight:500;overflow-wrap:anywhere}
 .song .a{color:var(--muted);font-size:14px;overflow-wrap:anywhere}
-.ballot select{min-width:0;width:200px}
+.ballot select{min-width:0;width:210px}
 .verdict{display:flex;flex-direction:column;align-items:flex-end;gap:2px;text-align:right;font-size:13px}
-.verdict .who{font-weight:700;font-size:14px}
-.tag{font:700 11px var(--f-mono);padding:2px 7px;border-radius:6px}
+.verdict .who{font-weight:600;font-size:14px}
+.tag{font-size:12px;font-weight:500;padding:2px 8px;border-radius:999px}
 .tag.ok{background:var(--good-soft);color:var(--good)}
 .tag.no{background:var(--bad-soft);color:var(--bad)}
-.tag.skip{background:var(--plum-soft);color:var(--plum)}
-.scoreline{display:flex;gap:18px;flex-wrap:wrap;align-items:baseline}
-.big{font:700 34px var(--f-mono);font-variant-numeric:tabular-nums;line-height:1}
+.tag.skip{background:var(--accent-soft);color:var(--accent)}
+.scoreline{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-end}
+.scoreline > div{text-align:center}
+.big{font-weight:600;font-size:30px;font-variant-numeric:tabular-nums;line-height:1.1}
 .tablewrap{overflow-x:auto}
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
 th,td{padding:10px 8px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
-th{font:700 11px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
-td.num,th.num{text-align:right;font-family:var(--f-mono)}
+th{font-size:12px;font-weight:500;letter-spacing:.03em;text-transform:uppercase;color:var(--muted)}
+td.num,th.num{text-align:right}
 tr.me td{background:var(--accent-soft)}
-.rank{font:700 14px var(--f-mono);color:var(--muted)}
+.rank{font-weight:600;color:var(--muted)}
 .empty{text-align:center;padding:28px 18px;color:var(--muted)}
-.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom, 0px));background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:999px;font-weight:600;font-size:14px;z-index:20}
+.toast{position:fixed;left:50%;transform:translateX(-50%);top:calc(76px + env(safe-area-inset-top, 0px));max-width:calc(100% - 32px);text-align:center;background:var(--ink);color:#fff;padding:9px 16px;border-radius:4px;font-weight:500;font-size:14px;z-index:20}
 .submitbar{position:sticky;bottom:0;bottom:env(safe-area-inset-bottom, 0px);display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding-block:12px;background:var(--surface);border-top:1px solid var(--line)}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 .rules{margin:0;padding-left:18px;color:var(--muted);font-size:14px;display:flex;flex-direction:column;gap:4px}
+footer.note{max-width:760px;margin:8px auto 0;text-align:center;color:var(--muted);font-size:12px;padding-inline:16px}
 @media (max-width:560px){
   .grid2{grid-template-columns:1fr}
+  .card{padding:18px}
+  .appbar .tagline{display:none}
   .ballot li{grid-template-columns:22px minmax(0,1fr)}
   .ballot li > select, .ballot li > .verdict{grid-column:2;justify-self:start;align-items:flex-start;text-align:left}
   .ballot select{width:100%}
@@ -107,12 +100,14 @@ tr.me td{background:var(--accent-soft)}
 </head>
 <body>
 
+<header class="appbar">
+  <div class="inner">
+    <h1 class="brand">Whose Song Is It? <span class="beta">(beta)</span></h1>
+    <span class="tagline">A guessing game for your Music League</span>
+  </div>
+</header>
 <div class="wrap">
-  <header class="top">
-    <span class="eyebrow">A game inside your Music League</span>
-    <h1 class="brand">Whose song <em>is it?</em> <span class="beta">(beta)</span></h1>
-    <p class="sub">Guess who submitted each song in the round. Points land when Music League reveals the results.</p>
-  </header>
+  <p class="sub">Guess who submitted each song in the round. Points land when the host reveals the real submitters.</p>
   <div id="banner" hidden></div>
   <nav class="tabs" role="tablist">
     <button role="tab" id="tab-play" data-view="play" aria-selected="true">Play</button>
@@ -123,6 +118,7 @@ tr.me td{background:var(--accent-soft)}
   <main id="view-leaderboard" hidden></main>
   <main id="view-host" hidden></main>
 </div>
+<footer class="note">An unofficial fan-made companion game. Not affiliated with Music League.</footer>
 <div class="toast" id="toast" hidden></div>
 
 
@@ -311,7 +307,7 @@ function renderPlay(){
 
   el.innerHTML = `<div class="card">
     <div class="row" style="justify-content:space-between">${roundPicker("roundpick", r.id)}<span class="pill ${r.status}">${r.status==="open"?"Guessing open":"Revealed"}</span></div>
-    <div class="roundhead"><span class="eyebrow">${esc(r.title)} · ${r.songs.length} songs</span><div class="prompt">${esc(r.prompt||"")}</div>
+    <div class="roundhead"><span class="eyebrow">${r.songs.length} songs</span><h2 class="roundtitle">${esc(r.title)}</h2>${r.prompt && r.prompt!==r.title ? `<p class="prompt">${esc(r.prompt)}</p>`:""}
       ${r.playlist?`<a href="${esc(r.playlist)}" target="_blank" rel="noopener">Listen to the playlist</a>`:""}</div>
     ${whoami}
     ${nameNote}
