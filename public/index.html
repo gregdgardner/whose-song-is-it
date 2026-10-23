@@ -5,33 +5,36 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Whose Song Is It (beta)</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@800;900&family=Poppins:wght@400;500;600;700&display=swap">
 <style>
-/* Layout: a purple app bar, then one centered column of white bordered cards on a pale grey page,
-   in the same visual family as Music League so the two feel related. Light theme only, like Music League. */
+/* Layout: a charcoal app bar with a purple edge, then one centered column of white cards on a grey page.
+   Related to Music League through the purple and Poppins, but charcoal and grey lead. Light theme only. */
 :root{
   color-scheme:light;
-  --bar:#931dc0; --bar-ink:#ffffff;
-  --bg:#f7f7f9; --surface:#ffffff; --ink:#212529; --muted:#6c757d; --line:#dee2e6;
+  --bar:#1b1a1f; --bar-ink:#ffffff; --bar-2:#2c2a31; --bar-muted:#b9b6c0; --accent-light:#c98bff;
+  --bg:#e9e9ec; --surface:#ffffff; --ink:#1b1a1f; --muted:#64626b; --line:#d6d5db;
   --accent:#931dc0; --accent-ink:#ffffff; --accent-soft:#f3e3f9;
   --good:#1e7e45; --good-soft:#dff3e6; --bad:#c0392b; --bad-soft:#fbe4e1;
   --f-body:"Poppins", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-display:"Archivo", "Arial Black", system-ui, sans-serif;
 }
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5;padding-block:0 48px}
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top, 0px);z-index:10;background:var(--bar)}
-.appbar{background:var(--bar);color:var(--bar-ink);padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px))}
+.appbar{background:var(--bar);color:var(--bar-ink);border-bottom:4px solid var(--accent);padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px))}
 .appbar .inner{max-width:760px;margin:0 auto;min-height:64px;display:flex;align-items:center;justify-content:space-between;gap:12px}
-.brand{font-weight:700;font-size:20px;line-height:1.2;margin:0;letter-spacing:-.01em}
-.brand .beta{font-weight:500;font-size:.75em;opacity:.8}
-.appbar .tagline{font-size:13px;opacity:.85}
+.brand{font-family:var(--f-display);font-weight:900;font-size:22px;line-height:1.2;margin:0;letter-spacing:-.01em;text-transform:uppercase}
+.brand em{font-style:normal;color:var(--accent-light)}
+.brand .beta{font-family:var(--f-body);font-weight:500;font-size:.6em;text-transform:none;color:var(--bar-muted);letter-spacing:0}
+.appbar .tagline{font-size:13px;color:var(--bar-muted)}
 .wrap{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:20px;padding-top:24px;
   padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px))}
 .sub{color:var(--muted);margin:0;max-width:60ch}
-nav.tabs{position:sticky;top:env(safe-area-inset-top, 0px);z-index:5;background:var(--surface);display:flex;border:1px solid var(--line);border-radius:4px}
-nav.tabs button{flex:1;font:500 17px var(--f-body);background:none;border:0;border-bottom:3px solid transparent;color:var(--ink);padding:12px 8px 9px;cursor:pointer}
-nav.tabs button[aria-selected="true"]{color:var(--accent);border-bottom-color:var(--accent)}
+nav.tabs{position:sticky;top:env(safe-area-inset-top, 0px);z-index:5;background:var(--bar);display:flex;gap:4px;padding:4px;border-radius:6px}
+nav.tabs button{flex:1;font:500 15px var(--f-body);background:none;border:0;color:var(--bar-muted);padding:9px 8px;border-radius:4px;cursor:pointer}
+nav.tabs button:hover{color:var(--bar-ink);background:var(--bar-2)}
+nav.tabs button[aria-selected="true"]{color:var(--accent-ink);background:var(--accent)}
 nav.tabs button:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 a{color:var(--accent);font-weight:500}
 .banner{background:var(--accent-soft);color:var(--ink);border-radius:4px;padding:10px 14px;font-size:14px}
@@ -43,7 +46,7 @@ h3{font-size:15px;margin:0}
 .muted{color:var(--muted)}
 .pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:500;letter-spacing:.03em;text-transform:uppercase;padding:3px 10px;border-radius:999px}
 .pill.open{background:var(--accent-soft);color:var(--accent)}
-.pill.revealed{background:#eceef1;color:var(--muted)}
+.pill.revealed{background:var(--bar);color:var(--bar-ink)}
 select,input,textarea{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:8px 10px;max-width:100%}
 select:disabled,input:disabled,textarea:disabled{opacity:.45;cursor:not-allowed}
 textarea{width:100%;min-height:120px;resize:vertical;font-size:13px}
@@ -54,9 +57,9 @@ label.field .hint{font-weight:400;color:var(--muted);font-size:13px}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 .btn.danger{color:var(--bad)}
 .btn:disabled{opacity:.5;cursor:not-allowed}
-.card{background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:24px;display:flex;flex-direction:column;gap:16px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:24px;display:flex;flex-direction:column;gap:16px}
 .roundhead{display:flex;flex-direction:column;gap:4px}
-.roundtitle{font-weight:500;font-size:clamp(22px,4.5vw,28px);line-height:1.2;margin:0;text-wrap:balance}
+.roundtitle{font-weight:600;font-size:clamp(22px,4.5vw,28px);line-height:1.2;margin:0;text-wrap:balance}
 .prompt{font-size:16px;margin:0}
 .ballot{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;border-top:1px solid var(--line)}
 .ballot li{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 0;border-bottom:1px solid var(--line)}
@@ -73,17 +76,19 @@ label.field .hint{font-weight:400;color:var(--muted);font-size:13px}
 .tag.skip{background:var(--accent-soft);color:var(--accent)}
 .scoreline{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-end}
 .scoreline > div{text-align:center}
-.big{font-weight:600;font-size:30px;font-variant-numeric:tabular-nums;line-height:1.1}
+.big{font-family:var(--f-display);font-weight:900;font-size:30px;font-variant-numeric:tabular-nums;line-height:1.1}
 .tablewrap{overflow-x:auto}
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
 th,td{padding:10px 8px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
-th{font-size:12px;font-weight:500;letter-spacing:.03em;text-transform:uppercase;color:var(--muted)}
+th{font-size:12px;font-weight:500;letter-spacing:.03em;text-transform:uppercase;color:var(--bar-ink);background:var(--bar)}
 td.num,th.num{text-align:right}
 tr.me td{background:var(--accent-soft)}
 .rank{font-weight:600;color:var(--muted)}
 .empty{text-align:center;padding:28px 18px;color:var(--muted)}
 .toast{position:fixed;left:50%;transform:translateX(-50%);top:calc(76px + env(safe-area-inset-top, 0px));max-width:calc(100% - 32px);text-align:center;background:var(--ink);color:#fff;padding:9px 16px;border-radius:4px;font-weight:500;font-size:14px;z-index:20}
-.submitbar{position:sticky;bottom:0;bottom:env(safe-area-inset-bottom, 0px);display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding-block:12px;background:var(--surface);border-top:1px solid var(--line)}
+.submitbar{position:sticky;bottom:0;bottom:env(safe-area-inset-bottom, 0px);display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:12px 14px;margin-inline:-6px;background:var(--bar);color:var(--bar-ink);border-radius:6px}
+.submitbar .muted{color:var(--bar-muted)}
+.submitbar .btn:disabled{opacity:.6}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 .rules{margin:0;padding-left:18px;color:var(--muted);font-size:14px;display:flex;flex-direction:column;gap:4px}
 footer.note{max-width:760px;margin:8px auto 0;text-align:center;color:var(--muted);font-size:12px;padding-inline:16px}
@@ -102,7 +107,7 @@ footer.note{max-width:760px;margin:8px auto 0;text-align:center;color:var(--mute
 
 <header class="appbar">
   <div class="inner">
-    <h1 class="brand">Whose Song Is It? <span class="beta">(beta)</span></h1>
+    <h1 class="brand">Whose Song <em>Is It?</em> <span class="beta">(beta)</span></h1>
     <span class="tagline">A guessing game for your Music League</span>
   </div>
 </header>
