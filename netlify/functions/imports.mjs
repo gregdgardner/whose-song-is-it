@@ -138,5 +138,74 @@ export default { rounds: [
   ],
   "status": "open",
   "createdAt": 1793224340022
+},
+{
+  "id": "tke-round-1",
+  "site": "whose-song-tkes",
+  "title": "TKE Round 1",
+  "prompt": "",
+  "playlist": "https://open.spotify.com/playlist/4iaAbs7JvxKGGa4b3gGBum",
+  "players": [
+    "Mark",
+    "Craig Stanley",
+    "Anthropology Sucks",
+    "Lee Hughes",
+    "Kevin Grant",
+    "Greg Gardner"
+  ],
+  "songs": [
+    {
+      "id": "s01",
+      "title": "Black Dog",
+      "artist": "Led Zeppelin"
+    },
+    {
+      "id": "s02",
+      "title": "Welcome To The Jungle",
+      "artist": "Guns N' Roses"
+    },
+    {
+      "id": "s03",
+      "title": "True",
+      "artist": "Spandau Ballet"
+    },
+    {
+      "id": "s04",
+      "title": "Don't You (Forget About Me)",
+      "artist": "Simple Minds"
+    },
+    {
+      "id": "s05",
+      "title": "She'll Be Coming 'Round the Mountain",
+      "artist": "Pete Seeger"
+    },
+    {
+      "id": "s06",
+      "title": "Radio Free Europe",
+      "artist": "R.E.M."
+    },
+    {
+      "id": "s07",
+      "title": "Rosalita (Come Out Tonight)",
+      "artist": "Bruce Springsteen"
+    },
+    {
+      "id": "s08",
+      "title": "I Melt with You",
+      "artist": "Modern English"
+    },
+    {
+      "id": "s09",
+      "title": "What I Like About You",
+      "artist": "The Romantics"
+    },
+    {
+      "id": "s10",
+      "title": "Jump",
+      "artist": "Van Halen"
+    }
+  ],
+  "status": "open",
+  "createdAt": 1793473877213
 }
 ] };
