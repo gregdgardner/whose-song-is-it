@@ -1,9 +1,11 @@
 // Rounds prepared outside the site (for example from a Music League export).
 // Each one is added to the game once, the first time the site loads after it appears here.
 // Deleting the round on the Host tab keeps it deleted.
+// "site" is the Netlify project name the round belongs to (one site per league).
 export default { rounds: [
 {
   "id": "sharing-the-love",
+  "site": "whose-song-is-it",
   "title": "Sharing the love",
   "prompt": "Choose the song you most love sharing with your significant other—the one that brings back a special memory, captures your relationship, or simply makes the two of you smile whenever it plays.",
   "playlist": "https://open.spotify.com/playlist/75tLRsF0tYmqZXZJqJViqF",

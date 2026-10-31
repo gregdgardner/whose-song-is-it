@@ -25,13 +25,21 @@ async function listJSON(s, prefix) {
   return out.filter(([, v]) => v != null);
 }
 
-async function ensureSeeded(s) {
+// Several Netlify sites (one per league) deploy from this repo, each with its own Blobs store.
+// Rounds in imports.mjs name the site they belong to; ones without a site belong to the first league's site.
+const MAIN_SITE = "whose-song-is-it";
+function siteName(req, context) {
+  return context?.site?.name || process.env.SITE_NAME || new URL(req.url).hostname.split(".")[0].split("--").pop() || MAIN_SITE;
+}
+
+async function ensureSeeded(s, site) {
   for (const r of imports.rounds || []) {
+    if ((r.site || MAIN_SITE) !== site) continue;
     if (await s.get("meta/imported/" + r.id)) continue;
     if (!(await s.get("rounds/" + r.id))) await s.setJSON("rounds/" + r.id, cleanRound(r));
     await s.set("meta/imported/" + r.id, new Date().toISOString());
   }
-  if (await s.get("meta/seeded")) return;
+  if (site !== MAIN_SITE || await s.get("meta/seeded")) return;
   for (const r of seed.rounds || []) await s.setJSON("rounds/" + r.id, r);
   for (const g of seed.guesses || []) await s.setJSON(`guesses/${g.roundId}/${enc(g.player)}`, { player: g.player, roundId: g.roundId, picks: g.picks });
   await s.set("meta/seeded", new Date().toISOString());
@@ -65,16 +73,16 @@ function cleanRound(r) {
   };
 }
 
-export default async (req) => {
-  try { return await handle(req); }
+export default async (req, context) => {
+  try { return await handle(req, context); }
   catch (e) { console.error(e); return fail("The game server hit a problem: " + (e && e.message || e), 500); }
 };
 
-async function handle(req) {
+async function handle(req, context) {
   const s = store();
   const route = new URL(req.url).pathname.replace(/^\/api\/?/, "");
   const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
-  await ensureSeeded(s);
+  await ensureSeeded(s, siteName(req, context));
 
   // Everything the page needs. Other players' picks are only sent for revealed rounds.
   if (route === "state" && req.method === "POST") {

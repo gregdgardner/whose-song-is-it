@@ -9,7 +9,7 @@ Unofficial companion game for Greg's Music League: players guess who submitted e
 - Blobs reads can lag right after a write, so the page keeps the chosen name and picks locally and never clears them just because the server hasn't caught up.
 - Players press Submit to send picks; they can resubmit until the reveal.
 - Scoring: 1 point per correct match, +3 for a perfect round; a player's own song never counts. Leaderboard is cumulative across revealed rounds.
-- Claude can't reach netlify.app or the Netlify API from its sandbox. To add a round for Greg, append it to `netlify/functions/imports.mjs` (id, title, prompt, playlist, players, songs[{id,title,artist}], createdAt) and push; it is added once on the next page load and stays deleted if the host deletes it.
+- Claude can't reach netlify.app or the Netlify API from its sandbox. To add a round for Greg, append it to `netlify/functions/imports.mjs` (id, site, title, prompt, playlist, players, songs[{id,title,artist}], createdAt) and push. `site` is the Netlify project name of the league it belongs to (default `whose-song-is-it`); each league is its own Netlify site deployed from this same repo, with its own data and host code. The round it is added once on the next page load and stays deleted if the host deletes it.
 - Spotify playlist tracks can be read with WebFetch on `https://open.spotify.com/embed/playlist/<id>`.
 - Player names come from Music League's `competitors.csv` (ID,Name); duplicate names get " (2)". The Host tab can also load that CSV directly.
 - Test locally by swapping `@netlify/blobs` for an in-memory mock and driving the page with Playwright.
