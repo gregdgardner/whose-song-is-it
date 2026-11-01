@@ -12,6 +12,7 @@ Unofficial companion game for Greg's Music League: players guess who submitted e
 - Claude can't reach netlify.app or the Netlify API from its sandbox. To add a round for Greg, append it to `netlify/functions/imports.mjs` (id, site, title, prompt, playlist, players, songs[{id,title,artist}], createdAt) and push. `site` is the Netlify project name of the league it belongs to (default `whose-song-is-it`); each league is its own Netlify site deployed from this same repo, with its own data and host code. The round it is added once on the next page load and stays deleted if the host deletes it.
 - Spotify playlist tracks can be read with WebFetch on `https://open.spotify.com/embed/playlist/<id>`.
 - Player names come from Music League's `competitors.csv` (ID,Name); duplicate names get " (2)". The Host tab can also load that CSV directly.
+- Reveal answers: the Host tab's "Fill from Music League export" takes submissions.csv + competitors.csv (+ rounds.csv, which picks the round by playlist link) and fills the submitter dropdowns by matching song titles. The export is per league, so check rounds.csv to see which league it came from.
 - Test locally by swapping `@netlify/blobs` for an in-memory mock and driving the page with Playwright.
 
 Ideas Greg raised but has not asked to build yet: a $5 pot, separate copies of the site per league, a real App Store app.

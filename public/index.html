@@ -376,19 +376,81 @@ function renderBoard(){
   </div>`;
 }
 
+// Full CSV parser (handles quoted fields with commas, quotes and line breaks, as in Music League's submissions.csv).
+function parseCSV(text){
+  const rows=[]; let row=[], cur="", q=false;
+  text = String(text).replace(/^\uFEFF/, "");
+  for (let i=0;i<text.length;i++){
+    const ch=text[i];
+    if (q){ if (ch==='"'){ if (text[i+1]==='"'){ cur+='"'; i++; } else q=false; } else cur+=ch; }
+    else if (ch==='"') q=true;
+    else if (ch===','){ row.push(cur); cur=""; }
+    else if (ch==='\n' || ch==='\r'){ if (ch==='\r' && text[i+1]==='\n') i++; row.push(cur); rows.push(row); row=[]; cur=""; }
+    else cur+=ch;
+  }
+  if (cur || row.length){ row.push(cur); rows.push(row); }
+  return rows.map(r=>r.map(c=>c.trim())).filter(r=>r.some(Boolean));
+}
+// Turns a CSV into objects keyed by its header row.
+function csvObjects(text){
+  const [head, ...body] = parseCSV(text);
+  return head ? body.map(r=>Object.fromEntries(head.map((h,i)=>[h, r[i]||""]))) : [];
+}
 // Music League's competitors.csv has "ID,Name" columns; repeated names get a number so each stays pickable.
-function namesFromCSV(text){
-  const rows = text.split(/\r?\n/).filter(l=>l.trim()).map(l=>{
-    const cells=[]; let cur="", q=false;
-    for (const ch of l){ if (ch==='"') q=!q; else if (ch===',' && !q){ cells.push(cur); cur=""; } else cur+=ch; }
-    cells.push(cur); return cells.map(c=>c.trim());
-  });
+function competitorsFromCSV(text){
+  const rows = parseCSV(text);
   if (!rows.length) return [];
   let col = rows[0].findIndex(h=>/^name$/i.test(h));
+  const idCol = rows[0].findIndex(h=>/^id$/i.test(h));
   const body = col>=0 ? rows.slice(1) : rows;
   if (col<0) col = rows[0].length>1 ? rows[0].length-1 : 0;
   const seen = {};
-  return body.map(r=>r[col]).filter(Boolean).map(n=>{ seen[n]=(seen[n]||0)+1; return seen[n]>1 ? `${n} (${seen[n]})` : n; });
+  return body.filter(r=>r[col]).map(r=>{ const n=r[col]; seen[n]=(seen[n]||0)+1; return {id: idCol>=0 ? r[idCol] : "", name: seen[n]>1 ? `${n} (${seen[n]})` : n}; });
+}
+function namesFromCSV(text){ return competitorsFromCSV(text).map(c=>c.name); }
+
+// Fill the reveal dropdowns from a Music League export (submissions.csv + competitors.csv, rounds.csv optional).
+const normTitle = t => String(t||"").toLowerCase().replace(/\s+-\s+.*$/, "").replace(/\s*[([].*?[)\]]/g, "").replace(/&/g,"and").replace(/[^a-z0-9]+/g, "");
+const normFull = t => String(t||"").toLowerCase().replace(/\s+-\s+.*$/, "").replace(/&/g,"and").replace(/[^a-z0-9]+/g, "");
+const normArtistWords = a => String(a||"").toLowerCase().replace(/&/g," and ").split(/[^a-z0-9]+/).filter(w=>w.length>2 && !["the","and","feat"].includes(w));
+const normURL = u => String(u||"").split("?")[0].replace(/\/+$/, "").toLowerCase();
+async function importAnswers(files){
+  const r = rounds.find(x=>x.id===hostRoundId); if (!r) return;
+  let subs=null, comps=null, mlRounds=null;
+  for (const f of files){
+    const text = await f.text();
+    const head = (parseCSV(text.split(/\r?\n/)[0])[0]||[]).map(h=>h.toLowerCase());
+    if (head.includes("submitter id")) subs = csvObjects(text);
+    else if (head.includes("playlist url")) mlRounds = csvObjects(text);
+    else if (head.includes("voter id")) continue;
+    else if (head.includes("name")) comps = competitorsFromCSV(text);
+  }
+  if (!subs){ toast("Include submissions.csv from the Music League export."); return; }
+  if (!comps){ toast("Include competitors.csv too, so I can match IDs to names."); return; }
+  const nameById = Object.fromEntries(comps.map(c=>[c.id, c.name]));
+  const lower = Object.fromEntries((r.players||[]).map(p=>[p.toLowerCase(), p]));
+  // A name the export numbered as a duplicate ("Jeffro (2)") falls back to the plain name if that's all the round has.
+  const toPlayer = id => { const n = nameById[id]; if (!n) return null; return lower[n.toLowerCase()] || lower[n.replace(/\s\(\d+\)$/, "").toLowerCase()] || null; };
+
+  // Which Music League round is this? Match the playlist link first, otherwise the round whose songs match best.
+  let roundId = null;
+  if (mlRounds && r.playlist){ const m = mlRounds.find(x=>normURL(x["Playlist URL"])===normURL(r.playlist)); if (m) roundId = m.ID; }
+  if (!roundId){
+    const want = new Set(r.songs.map(s=>normTitle(s.title))); const score = {};
+    for (const x of subs) if (want.has(normTitle(x.Title))) score[x["Round ID"]] = (score[x["Round ID"]]||0)+1;
+    roundId = Object.entries(score).sort((a,b)=>b[1]-a[1])[0]?.[0];
+  }
+  const pool = subs.filter(x=>!roundId || x["Round ID"]===roundId);
+  let filled = 0;
+  for (const s of r.songs){
+    let c = pool.filter(x=>normFull(x.Title)===normFull(s.title));
+    if (!c.length) c = pool.filter(x=>normTitle(x.Title)===normTitle(s.title));
+    if (c.length>1){ const aw = normArtistWords(s.artist); const byArtist = c.filter(x=>normArtistWords(x["Artist(s)"]).some(w=>aw.includes(w))); if (byArtist.length) c = byArtist; }
+    const who = c.length===1 ? toPlayer(c[0]["Submitter ID"]) : null;
+    if (who){ revealDraft[s.id] = who; filled++; }
+  }
+  renderHost();
+  toast(filled===r.songs.length ? `Filled all ${filled} songs. Check them, then press Reveal.` : `Filled ${filled} of ${r.songs.length} songs. Pick the rest by hand.`);
 }
 function parseSongs(text){
   return text.split(/\n/).map(l=>l.trim()).filter(Boolean).map(l=>{
@@ -445,7 +507,8 @@ function renderHost(){
     const src = r.status==="revealed" && r.answers ? {...r.answers, ...revealDraft} : revealDraft;
     reveal = `<div class="card">
       <div class="roundhead"><span class="eyebrow">After Music League reveals</span><h2>Enter who really submitted each song</h2>
-      <p class="muted" style="margin:0">Answers stay on your screen until you press reveal, so nobody can peek.</p></div>
+      <p class="muted" style="margin:0">Answers stay on your screen until you press reveal, so nobody can peek.</p>
+      <label class="field" for="h-export">Fill from Music League export <span class="hint">Select submissions.csv and competitors.csv together (rounds.csv helps too)</span><input type="file" id="h-export" accept=".csv,text/csv" multiple></label></div>
       <ol class="ballot">${r.songs.map((s,i)=>`<li><span class="n">${String(i+1).padStart(2,"0")}</span><div class="song"><div class="t">${esc(s.title)}</div><div class="a">${esc(s.artist)}</div></div>
         <select data-ans="${esc(s.id)}" id="ans-${esc(s.id)}" aria-label="Submitter of ${esc(s.title)}"><option value="">Submitter</option>${players.map(p=>`<option value="${esc(p)}" ${src[s.id]===p?"selected":""}>${esc(p)}</option>`).join("")}</select></li>`).join("")}</ol>
       <div class="row">
@@ -521,6 +584,7 @@ document.addEventListener("change", async e=>{
     renderPlay(); return;
   }
   if (t.dataset.ans){ revealDraft[t.dataset.ans] = t.value; }
+  if (t.id==="h-export" && t.files.length){ await importAnswers([...t.files]); return; }
   if (t.id==="h-players-file" && t.files[0]){
     const names = namesFromCSV(await t.files[0].text());
     if (!names.length){ toast("Couldn't find a Name column in that file."); return; }
