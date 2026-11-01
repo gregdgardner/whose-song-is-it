@@ -416,17 +416,20 @@ const normArtistWords = a => String(a||"").toLowerCase().replace(/&/g," and ").s
 const normURL = u => String(u||"").split("?")[0].replace(/\/+$/, "").toLowerCase();
 async function importAnswers(files){
   const r = rounds.find(x=>x.id===hostRoundId); if (!r) return;
-  let subs=null, comps=null, mlRounds=null;
+  // Files can be picked together or one at a time; each pick is remembered until the round is revealed.
+  const ex = importAnswers.files ||= {};
   for (const f of files){
     const text = await f.text();
     const head = (parseCSV(text.split(/\r?\n/)[0])[0]||[]).map(h=>h.toLowerCase());
-    if (head.includes("submitter id")) subs = csvObjects(text);
-    else if (head.includes("playlist url")) mlRounds = csvObjects(text);
+    if (head.includes("submitter id")) ex.subs = csvObjects(text);
+    else if (head.includes("playlist url")) ex.rounds = csvObjects(text);
     else if (head.includes("voter id")) continue;
-    else if (head.includes("name")) comps = competitorsFromCSV(text);
+    else if (head.includes("name")) ex.comps = competitorsFromCSV(text);
   }
-  if (!subs){ toast("Include submissions.csv from the Music League export."); return; }
-  if (!comps){ toast("Include competitors.csv too, so I can match IDs to names."); return; }
+  const {subs, comps, rounds: mlRounds} = ex;
+  if (!subs && !comps){ toast("Pick submissions.csv and competitors.csv from the Music League export."); return; }
+  if (!subs){ toast("Got competitors.csv. Now pick submissions.csv."); return; }
+  if (!comps){ toast("Got submissions.csv. Now pick competitors.csv."); return; }
   const nameById = Object.fromEntries(comps.map(c=>[c.id, c.name]));
   const lower = Object.fromEntries((r.players||[]).map(p=>[p.toLowerCase(), p]));
   // A name the export numbered as a duplicate ("Jeffro (2)") falls back to the plain name if that's all the round has.
@@ -508,7 +511,7 @@ function renderHost(){
     reveal = `<div class="card">
       <div class="roundhead"><span class="eyebrow">After Music League reveals</span><h2>Enter who really submitted each song</h2>
       <p class="muted" style="margin:0">Answers stay on your screen until you press reveal, so nobody can peek.</p>
-      <label class="field" for="h-export">Fill from Music League export <span class="hint">Select submissions.csv and competitors.csv together (rounds.csv helps too)</span><input type="file" id="h-export" accept=".csv,text/csv" multiple></label></div>
+      <label class="field" for="h-export">Fill from Music League export <span class="hint">Pick submissions.csv, then competitors.csv (one at a time is fine)</span><input type="file" id="h-export" accept=".csv,text/csv" multiple></label></div>
       <ol class="ballot">${r.songs.map((s,i)=>`<li><span class="n">${String(i+1).padStart(2,"0")}</span><div class="song"><div class="t">${esc(s.title)}</div><div class="a">${esc(s.artist)}</div></div>
         <select data-ans="${esc(s.id)}" id="ans-${esc(s.id)}" aria-label="Submitter of ${esc(s.title)}"><option value="">Submitter</option>${players.map(p=>`<option value="${esc(p)}" ${src[s.id]===p?"selected":""}>${esc(p)}</option>`).join("")}</select></li>`).join("")}</ol>
       <div class="row">
