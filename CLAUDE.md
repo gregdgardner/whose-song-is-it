@@ -5,7 +5,8 @@ Unofficial companion game for Greg's Music League: players guess who submitted e
 - Live site: https://whose-song-is-it.netlify.app (Netlify project owned by Greg, deploys automatically from `main` of gregdgardner/whose-song-is-it).
 - `public/index.html` is the whole front end (no build step). Styling: charcoal app bar with a purple edge, Poppins + Archivo, light theme only. Keep it related to Music League but not a copy; keep the "unofficial, not affiliated" footer.
 - `netlify/functions/api.mjs` is the server (Netlify Functions v2 + Netlify Blobs store "game"). Other players' picks are only returned for revealed rounds; answers are only stored at reveal.
-- Players pick a name with no login; the first device to pick a name owns it (token in localStorage). The host can unlock a name on the Host tab. The host code is set by whoever first enters one on the Host tab.
+- Players pick a name with no login and set a 4-digit PIN; other devices join that name with the PIN (claims hold several token hashes; 5 wrong PINs lock it for 15 minutes). Names claimed before PINs existed are prompted to add one. The host can unlock a name on the Host tab (clears the PIN). The host code is set by whoever first enters one on the Host tab.
+- Each pick can carry an optional note (max 200 chars), private until the reveal like picks, then shown under the song.
 - Blobs reads can lag right after a write, so the page keeps the chosen name and picks locally and never clears them just because the server hasn't caught up.
 - Players press Submit to send picks; they can resubmit until the reveal.
 - Scoring: 1 point per correct match, +3 for a perfect round; a player's own song never counts. Leaderboard is cumulative across revealed rounds.
@@ -15,4 +16,4 @@ Unofficial companion game for Greg's Music League: players guess who submitted e
 - Reveal answers: the Host tab's "Fill from Music League export" takes submissions.csv + competitors.csv (+ rounds.csv, which picks the round by playlist link) and fills the submitter dropdowns by matching song titles. The export is per league, so check rounds.csv to see which league it came from.
 - Test locally by swapping `@netlify/blobs` for an in-memory mock and driving the page with Playwright.
 
-Ideas Greg raised but has not asked to build yet: a $5 pot, separate copies of the site per league, a real App Store app.
+Ideas Greg raised but has not asked to build yet: a $5 pot, a real App Store app.

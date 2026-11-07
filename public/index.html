@@ -47,6 +47,9 @@ nav.tabs button:focus-visible, button:focus-visible, select:focus-visible, input
 a{color:var(--accent);font-weight:500}
 .banner{background:var(--accent-soft);color:var(--ink);border-radius:4px;padding:10px 14px;font-size:14px}
 .banner strong{color:var(--accent)}
+.pinbox{display:flex;flex-direction:column;gap:10px;background:var(--accent-soft);border-radius:4px;padding:12px 14px;font-size:14px}
+.pinbox input{font-size:18px;letter-spacing:6px}
+.pinbox input::placeholder{font-size:15px;letter-spacing:0}
 .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 .eyebrow{font-size:13px;letter-spacing:.02em;text-transform:uppercase;color:var(--muted)}
 h2{font-weight:500;font-size:22px;line-height:1.25;margin:0;text-wrap:balance}
@@ -76,6 +79,10 @@ label.field .hint{font-weight:400;color:var(--muted);font-size:13px}
 .song .t{font-weight:500;overflow-wrap:anywhere}
 .song .a{color:var(--muted);font-size:14px;overflow-wrap:anywhere}
 .ballot select{min-width:0;width:210px}
+.ballot .note{grid-column:2 / -1;font-size:14px;padding:7px 10px}
+.ballot .notes{grid-column:2 / -1;display:flex;flex-direction:column;gap:4px;font-size:14px;background:var(--accent-soft);border-radius:4px;padding:8px 12px}
+.ballot .notes .ok{color:var(--good);font-size:13px}
+.ballot .notes .no{color:var(--bad);font-size:13px}
 .verdict{display:flex;flex-direction:column;align-items:flex-end;gap:2px;text-align:right;font-size:13px}
 .verdict .who{font-weight:600;font-size:14px}
 .tag{font-size:12px;font-weight:500;padding:2px 8px;border-radius:999px}
@@ -140,10 +147,13 @@ const PERFECT_BONUS = 3;
 let ready = false, loaded = false, offline = false;
 let rounds = [];          // [{id, title, prompt, playlist, players[], songs[{id,title,artist}], answers|null, status, createdAt}]
 let guesses = {};         // roundId -> {player: picks}; other players' picks only arrive once a round is revealed
+let notes = {};           // roundId -> {player: {songId: note}}; same rule as picks
 let started = {};         // roundId -> number of players who have guessed
 let claimed = [];         // player names already taken by a device
 let hostSet = false;
 let nameError = "";
+let pendingName = "", pinMode = "";  // a name picked but not yet confirmed with a PIN; pinMode is "new", "enter" or "setup"
+let pinSet = null, pinLater = false;
 let view = "play", currentRoundId = null;
 let hostRoundId = "new", hostDraft = null, revealDraft = {}, confirmDelete = false;
 
@@ -160,6 +170,7 @@ const ls = {
 let token = ls.get("wsii.token");
 if (!token){ token = Array.from(crypto.getRandomValues(new Uint8Array(16)), b=>b.toString(16).padStart(2,"0")).join(""); ls.set("wsii.token", token); }
 let myPlayer = ls.get("wsii.player") || "";
+let myPin = ls.get("wsii.pin") || "";
 let hostCode = ls.get("wsii.host") || "";
 let hostAuthed = false;
 
@@ -176,7 +187,9 @@ try{ localPicks = JSON.parse(ls.get("wsii.picks") || "{}") || {}; }catch{ localP
 async function refresh(){
   try{
     const st = await api("state", {player:myPlayer, token});
-    rounds = st.rounds; guesses = st.guesses; started = st.started; claimed = st.claimed; hostSet = st.hostSet;
+    rounds = st.rounds; guesses = st.guesses; notes = st.notes || {}; started = st.started; claimed = st.claimed; hostSet = st.hostSet;
+    // Older names were claimed before PINs existed; offer to add one. (Skip it if this device just set one and the server hasn't caught up.)
+    pinSet = st.me && st.me===myPlayer ? st.pinSet : null;
     offline = false; loaded = true;
   }catch{ offline = true; }
   render();
@@ -184,6 +197,17 @@ async function refresh(){
 function myPicks(roundId){
   const server = (guesses[roundId] && guesses[roundId][myPlayer]) || {};
   return localPicks[roundId] ? localPicks[roundId] : server;
+}
+// Notes work like picks: kept locally until submitted, private until the reveal.
+let localNotes = {};
+try{ localNotes = JSON.parse(ls.get("wsii.notes") || "{}") || {}; }catch{ localNotes = {}; }
+function myNotes(roundId){
+  return localNotes[roundId] ? localNotes[roundId] : ((notes[roundId] && notes[roundId][myPlayer]) || {});
+}
+let submittedNotes = {};
+try{ submittedNotes = JSON.parse(ls.get("wsii.submittedNotes") || "{}") || {}; }catch{ submittedNotes = {}; }
+function lastSubmittedNotes(roundId){
+  return submittedNotes[roundId] || (notes[roundId] && notes[roundId][myPlayer]) || {};
 }
 // What this device last submitted per round, so the button knows whether there are unsent changes.
 let submitted = {};
@@ -195,10 +219,12 @@ function lastSubmitted(roundId){
 let submitting = false;
 async function submitPicks(roundId){
   const picks = {...myPicks(roundId)};
+  const n = Object.fromEntries(Object.entries(myNotes(roundId)).map(([k,v])=>[k, v.trim()]).filter(([,v])=>v));
   submitting = true; renderPlay();
   try{
-    await api("guess", {player:myPlayer, token, roundId, picks});
+    await api("guess", {player:myPlayer, token, pin:myPin||undefined, roundId, picks, notes:n});
     submitted[roundId] = picks; ls.set("wsii.submitted", JSON.stringify(submitted));
+    submittedNotes[roundId] = n; ls.set("wsii.submittedNotes", JSON.stringify(submittedNotes));
     toast("Guesses submitted"); nameError = ""; refresh();
   }catch(e){ nameError = e.message; toast(e.message); }
   submitting = false; render();
@@ -265,14 +291,28 @@ function renderPlay(){
   const whoami = `<label class="field" for="whoami">Who are you in the league?
       <select id="whoami"><option value="">Pick your name</option>${allPlayers().map(p=>{
         const taken = claimed.includes(p) && p!==myPlayer;
-        return `<option value="${esc(p)}" ${p===myPlayer?"selected":""} ${taken?"disabled":""}>${esc(p)}${taken?" (taken)":""}</option>`;
+        const sel = pendingName ? p===pendingName : p===myPlayer;
+        return `<option value="${esc(p)}" ${sel?"selected":""}>${esc(p)}${taken?" (PIN needed)":""}</option>`;
       }).join("")}</select></label>`;
+  const showSetup = !pendingName && myPlayer && pinSet===false && !pinLater && ls.get("wsii.pinset")!==myPlayer;
+  const mode = pendingName ? pinMode : showSetup ? "setup" : "";
+  const pinText = {
+    new: `Choose a 4-digit PIN for <strong>${esc(pendingName)}</strong>. You'll use it to play on another phone or computer.`,
+    enter: `<strong>${esc(pendingName)}</strong> is already playing on another device. Enter their PIN to play here too. Forgot it? Ask the host to unlock the name.`,
+    setup: `Add a 4-digit PIN so you can also play as <strong>${esc(myPlayer)}</strong> on another phone or computer.`,
+  }[mode];
+  const pinForm = mode ? `<form id="pinform" class="pinbox"><p style="margin:0">${pinText}</p>
+      <div class="row"><input type="password" id="pin" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="off" placeholder="4-digit PIN" aria-label="PIN" style="max-width:150px">
+      <button class="btn primary" type="submit">${mode==="enter"?"Sign in":"Save PIN"}</button>
+      <button class="btn" type="button" id="pin-cancel">${mode==="setup"?"Later":"Cancel"}</button></div></form>` : "";
 
-  const nameNote = nameError ? `<p class="banner" role="alert" style="margin:0"><strong>Couldn't pick that name.</strong> ${esc(nameError)}</p>` : "";
+  const nameNote = nameError ? `<p class="banner" role="alert" style="margin:0">${esc(nameError)}</p>` : "";
   const counts = {}; Object.values(picks).forEach(p=>counts[p]=(counts[p]||0)+1);
   const guessers = guessersOf(r);
 
+  const myNotesNow = myPlayer ? myNotes(r.id) : {};
   const songRows = r.songs.map((s,i)=>{
+    let extra = "";
     let right;
     if (revealed){
       const ans = r.answers[s.id]; const mineGuess = picks[s.id];
@@ -284,6 +324,9 @@ function renderPlay(){
       else if (!mineGuess) tag = `<span class="tag no">No guess</span>`;
       else tag = mineGuess===ans ? `<span class="tag ok">✓ You got it</span>` : `<span class="tag no">✗ You said ${esc(mineGuess)}</span>`;
       right = `<div class="verdict"><span class="who">${esc(ans||"Not entered")}</span>${tag}<span class="muted">${nRight} of ${pool.length} guessed right</span></div>`;
+      const said = Object.entries(notes[r.id]||{}).filter(([,n])=>n[s.id]).sort(([a],[b])=>(b===myPlayer)-(a===myPlayer));
+      if (said.length) extra = `<div class="notes">${said.map(([g,n])=>{ const gp = (guesses[r.id]?.[g]||{})[s.id]; const mark = !gp ? "" : gp===ans ? ` <span class="ok">guessed ${esc(gp)} ✓</span>` : ` <span class="no">guessed ${esc(gp)} ✗</span>`;
+        return `<div><strong>${esc(g===myPlayer?"You":g)}</strong>${mark}: ${esc(n[s.id])}</div>`; }).join("")}</div>`;
     } else {
       const opts = players.map(p=>{
         const label = p===myPlayer ? `That's mine (${p})` : p;
@@ -291,8 +334,9 @@ function renderPlay(){
         return `<option value="${esc(p)}" ${picks[s.id]===p?"selected":""}>${esc(label+used)}</option>`;
       }).join("");
       right = `<select id="pick-${esc(s.id)}" data-song="${esc(s.id)}" aria-label="Who submitted ${esc(s.title)}" ${canGuess?"":"disabled"}><option value="">Who submitted this?</option>${opts}</select>`;
+      if (canGuess) extra = `<input type="text" class="note" data-note="${esc(s.id)}" maxlength="200" value="${esc(myNotesNow[s.id]||"")}" placeholder="Add a note (optional, hidden until the reveal)" aria-label="Note about ${esc(s.title)}">`;
     }
-    return `<li><span class="n">${String(i+1).padStart(2,"0")}</span><div class="song"><div class="t">${esc(s.title)}</div><div class="a">${esc(s.artist)}</div></div>${right}</li>`;
+    return `<li><span class="n">${String(i+1).padStart(2,"0")}</span><div class="song"><div class="t">${esc(s.title)}</div><div class="a">${esc(s.artist)}</div></div>${right}${extra}</li>`;
   }).join("");
 
   let summary;
@@ -323,17 +367,18 @@ function renderPlay(){
     <div class="roundhead"><span class="eyebrow">${r.songs.length} songs</span><h2 class="roundtitle">${esc(r.title)}</h2>${r.prompt && r.prompt!==r.title ? `<p class="prompt">${esc(r.prompt)}</p>`:""}
       ${r.playlist?`<a href="${esc(r.playlist)}" target="_blank" rel="noopener">Listen to the playlist</a>`:""}</div>
     ${whoami}
+    ${pinForm}
     ${nameNote}
     ${summary}
     <ol class="ballot">${songRows}</ol>
-    ${r.status==="open" ? submitBar(r, picks) : ""}
+    ${r.status==="open" ? `<div id="submitwrap">${submitBar(r, picks)}</div>` : ""}
   </div>`;
 }
 
 function submitBar(r, picks){
   const done = Object.keys(picks).length, total = r.songs.length;
   const last = lastSubmitted(r.id);
-  const dirty = !last || !sameJSON(last, picks);
+  const dirty = !last || !sameJSON(last, picks) || !sameJSON(lastSubmittedNotes(r.id), Object.fromEntries(Object.entries(myNotes(r.id)).map(([k,v])=>[k,v.trim()]).filter(([,v])=>v)));
   let status, label;
   if (!myPlayer){ status = "Pick your name to start guessing."; label = "Submit my guesses"; }
   else if (!last){ status = done===total ? "All songs guessed. Submit when you're happy." : `${total-done} ${total-done===1?"song":"songs"} left to guess. You can submit now and finish later.`; label = done===total ? "Submit my guesses" : `Submit ${done} of ${total} guesses`; }
@@ -510,10 +555,10 @@ function renderHost(){
     const src = r.status==="revealed" && r.answers ? {...r.answers, ...revealDraft} : revealDraft;
     reveal = `<div class="card">
       <div class="roundhead"><span class="eyebrow">After Music League reveals</span><h2>Enter who really submitted each song</h2>
-      <p class="muted" style="margin:0">Answers stay on your screen until you press reveal, so nobody can peek.</p>
-      <label class="field" for="h-export">Fill from Music League export <span class="hint">Pick submissions.csv, then competitors.csv (one at a time is fine)</span><input type="file" id="h-export" accept=".csv,text/csv" multiple></label></div>
+      <p class="muted" style="margin:0">Answers stay on your screen until you press reveal, so nobody can peek.</p></div>
       <ol class="ballot">${r.songs.map((s,i)=>`<li><span class="n">${String(i+1).padStart(2,"0")}</span><div class="song"><div class="t">${esc(s.title)}</div><div class="a">${esc(s.artist)}</div></div>
         <select data-ans="${esc(s.id)}" id="ans-${esc(s.id)}" aria-label="Submitter of ${esc(s.title)}"><option value="">Submitter</option>${players.map(p=>`<option value="${esc(p)}" ${src[s.id]===p?"selected":""}>${esc(p)}</option>`).join("")}</select></li>`).join("")}</ol>
+      <label class="field" for="h-export">Fill these in from a Music League export <span class="hint">Pick submissions.csv, then competitors.csv (one at a time is fine)</span><input type="file" id="h-export" accept=".csv,text/csv" multiple></label>
       <div class="row">
         <button class="btn primary" id="h-reveal">${r.status==="revealed"?"Update answers":"Reveal and score"}</button>
         ${r.status==="revealed"?`<button class="btn" id="h-reopen">Reopen guessing</button>`:""}
@@ -522,7 +567,7 @@ function renderHost(){
   }
 
   const unlock = claimed.length ? `<div class="card">
-    <div class="roundhead"><h2>Unlock a player name</h2><p class="muted" style="margin:0">Each name works on one device. If someone switches phones or picked the wrong name, unlock it here so they can pick it again.</p></div>
+    <div class="roundhead"><h2>Unlock a player name</h2><p class="muted" style="margin:0">Players use their PIN to play on another device. If someone forgot their PIN or picked the wrong name, unlock it here. They'll pick the name again and choose a new PIN.</p></div>
     <div class="row"><select id="h-release">${claimed.map(p=>`<option value="${esc(p)}">${esc(p)}</option>`).join("")}</select><button class="btn" id="h-release-btn">Unlock</button></div>
   </div>` : "";
   el.innerHTML = form + reveal + unlock;
@@ -532,6 +577,7 @@ function renderHost(){
 async function hostCall(path, body){ return api("host/"+path, {code:hostCode, ...body}); }
 
 document.addEventListener("submit", async e=>{
+  if (e.target.id==="pinform"){ e.preventDefault(); return pinSubmit(); }
   if (e.target.id!=="hostlogin") return;
   e.preventDefault();
   const code = $("#h-code").value;
@@ -545,6 +591,7 @@ document.addEventListener("click", async e=>{
   const tab = e.target.closest("nav.tabs button");
   if (tab){ view = tab.dataset.view; try{ history.replaceState(null,"","#"+view);}catch{} render(); return; }
   if (e.target.id==="submit-picks") return submitPicks(currentRoundId);
+  if (e.target.id==="pin-cancel"){ if (pendingName) pendingName=""; else pinLater=true; nameError=""; render(); return; }
   if (e.target.id==="h-save") return hostSave();
   if (e.target.id==="h-delete"){
     if (!confirmDelete){ confirmDelete=true; renderHost(); return; }
@@ -566,6 +613,14 @@ document.addEventListener("click", async e=>{
   }
 });
 document.addEventListener("input", e=>{
+  if (e.target.dataset.note){
+    const n = localNotes[currentRoundId] ||= {...myNotes(currentRoundId)};
+    n[e.target.dataset.note] = e.target.value;
+    ls.set("wsii.notes", JSON.stringify(localNotes));
+    const r = rounds.find(x=>x.id===currentRoundId), w = $("#submitwrap");
+    if (r && w) w.innerHTML = submitBar(r, myPicks(currentRoundId));
+    return;
+  }
   const map = {"h-title":"title","h-prompt":"prompt","h-playlist":"playlist","h-players":"players","h-songs":"songs"};
   if (map[e.target.id] && hostDraft) hostDraft[map[e.target.id]] = e.target.value;
 });
@@ -575,9 +630,11 @@ document.addEventListener("change", async e=>{
   if (t.id==="hostpick"){ hostRoundId = t.value; hostDraft=null; revealDraft={}; confirmDelete=false; renderHost(); return; }
   if (t.id==="whoami"){
     const name = t.value;
-    if (!name){ myPlayer=""; ls.set("wsii.player", null); render(); return; }
-    try{ await api("claim", {player:name, token}); nameError = ""; myPlayer = name; ls.set("wsii.player", name); toast(`You're playing as ${name}`); await refresh(); }
-    catch(err){ nameError = err.message; render(); }
+    nameError = "";
+    if (!name){ pendingName=""; myPlayer=""; myPin=""; ls.set("wsii.player", null); ls.set("wsii.pin", null); render(); return; }
+    if (name===myPlayer){ pendingName=""; render(); return; }
+    pendingName = name; pinMode = claimed.includes(name) ? "enter" : "new";
+    render(); setTimeout(()=>$("#pin")?.focus(), 0);
     return;
   }
   if (t.dataset.song){
@@ -594,6 +651,19 @@ document.addEventListener("change", async e=>{
     hostDraft.players = names.join("\n"); renderHost(); toast(`Loaded ${names.length} players`);
   }
 });
+
+async function pinSubmit(){
+  const pin = ($("#pin")?.value||"").trim();
+  if (!/^\d{4}$/.test(pin)){ nameError = "The PIN must be 4 digits."; render(); return; }
+  const name = pendingName || myPlayer;
+  try{
+    await api("claim", {player:name, token, pin});
+    const fresh = name!==myPlayer;
+    nameError = ""; pendingName = ""; myPlayer = name; myPin = pin;
+    ls.set("wsii.player", name); ls.set("wsii.pin", pin); ls.set("wsii.pinset", name);
+    toast(fresh ? `You're playing as ${name}` : "PIN saved"); await refresh();
+  }catch(err){ nameError = err.message; render(); }
+}
 
 async function hostSave(){
   const d = hostDraft;
@@ -633,7 +703,7 @@ ready = true; render();
   if (hostCode){ try{ await api("host/login", {code:hostCode}); hostAuthed = true; }catch{ hostCode=""; ls.set("wsii.host", null); } }
   await refresh();
   // skip background refreshes while someone has a dropdown open, so it doesn't snap shut
-  setInterval(()=>{ const a=document.activeElement; if (!document.hidden && !submitting && !(a && a.tagName==="SELECT")) refresh(); }, 20000);
+  setInterval(()=>{ const a=document.activeElement; if (!document.hidden && !submitting && !(a && /^(SELECT|INPUT|TEXTAREA)$/.test(a.tagName))) refresh(); }, 20000);
   document.addEventListener("visibilitychange", ()=>{ if (!document.hidden) refresh(); });
 })();
 </script>
