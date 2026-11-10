@@ -552,6 +552,8 @@ function parseSongs(text){
 }
 function draftFrom(r){
   if (!r){
+    // A new round being typed is kept on this device, so a refresh doesn't lose it.
+    try{ const saved = JSON.parse(ls.get("wsii.newRound")||"null"); if (saved && typeof saved.songs==="string") return saved; }catch{}
     const prev = sortedRounds().slice(-1)[0];
     return {title:`Round ${rounds.length+1}`, prompt:"", playlist:"", players:(prev?.players||[]).join("\n"), songs:""};
   }
@@ -571,6 +573,7 @@ function renderHost(){
   const r = hostRoundId==="new" ? null : rounds.find(x=>x.id===hostRoundId);
   if (hostRoundId!=="new" && !r){ hostRoundId="new"; hostDraft=null; }
   if (!hostDraft) hostDraft = draftFrom(r);
+  if (hostRoundId==="new") ls.set("wsii.newRound", JSON.stringify(hostDraft));
 
   const picker = `<select id="hostpick" aria-label="Round to manage"><option value="new" ${hostRoundId==="new"?"selected":""}>+ New round</option>${sortedRounds().slice().reverse().map(x=>`<option value="${esc(x.id)}" ${x.id===hostRoundId?"selected":""}>${esc(x.title)}</option>`).join("")}</select>`;
 
@@ -669,7 +672,7 @@ document.addEventListener("input", e=>{
     return;
   }
   const map = {"h-title":"title","h-prompt":"prompt","h-playlist":"playlist","h-players":"players","h-songs":"songs"};
-  if (map[e.target.id] && hostDraft) hostDraft[map[e.target.id]] = e.target.value;
+  if (map[e.target.id] && hostDraft){ hostDraft[map[e.target.id]] = e.target.value; if (hostRoundId==="new") ls.set("wsii.newRound", JSON.stringify(hostDraft)); }
 });
 document.addEventListener("change", async e=>{
   const t = e.target;
@@ -728,6 +731,7 @@ async function hostSave(){
                      : {id:rid(), title:d.title.trim()||`Round ${rounds.length+1}`, prompt:d.prompt.trim(), playlist:d.playlist.trim(), players, songs, status:"open", answers:null, createdAt:Date.now()};
   try{
     await hostCall("round", {round:r});
+    if (!existing) ls.set("wsii.newRound", null);
     hostRoundId = r.id; hostDraft = null; currentRoundId = r.id;
     toast(existing ? "Round saved" : "Round is open for guessing");
     await refresh(); renderHost();
