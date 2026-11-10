@@ -459,6 +459,50 @@ const normTitle = t => String(t||"").toLowerCase().replace(/\s+-\s+.*$/, "").rep
 const normFull = t => String(t||"").toLowerCase().replace(/\s+-\s+.*$/, "").replace(/&/g,"and").replace(/[^a-z0-9]+/g, "");
 const normArtistWords = a => String(a||"").toLowerCase().replace(/&/g," and ").split(/[^a-z0-9]+/).filter(w=>w.length>2 && !["the","and","feat"].includes(w));
 const normURL = u => String(u||"").split("?")[0].replace(/\/+$/, "").toLowerCase();
+// Fill the round's songs from submissions.csv (and players, if competitors.csv is picked too).
+// Uses the round whose playlist matches (needs rounds.csv), otherwise the newest round in the file.
+// Songs are shuffled so one person's songs don't sit next to each other.
+async function songsFromPlaylist(quiet){
+  const url = (hostDraft.playlist||"").trim();
+  if (!url){ if (!quiet) toast("Paste the Spotify playlist link first."); return; }
+  const btn = $("#h-getsongs"); if (btn){ btn.disabled = true; btn.textContent = "Getting songs…"; }
+  try{
+    const res = await hostCall("playlist", {url});
+    // Spotify lists songs in submission order, which can put one person's songs side by side, so shuffle.
+    const songs = res.songs.map(x=>`${x.title} - ${x.artist}`);
+    for (let i=songs.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [songs[i],songs[j]]=[songs[j],songs[i]]; }
+    hostDraft.songs = songs.join("\n");
+    renderHost(); toast(`Loaded ${songs.length} songs from the playlist`);
+  }catch(err){ renderHost(); toast(err.message); }
+}
+
+async function songsFromExport(files){
+  let subs=null, comps=null, mlRounds=null;
+  for (const f of files){
+    const text = await f.text();
+    const head = (parseCSV(text.split(/\r?\n/)[0])[0]||[]).map(h=>h.toLowerCase());
+    if (head.includes("submitter id")) subs = csvObjects(text);
+    else if (head.includes("playlist url")) mlRounds = csvObjects(text);
+    else if (head.includes("voter id")) continue;
+    else if (head.includes("name")) comps = competitorsFromCSV(text);
+  }
+  if (comps && comps.length) hostDraft.players = comps.map(c=>c.name).join("\n");
+  if (!subs){ renderHost(); toast(comps ? `Loaded ${comps.length} players. Now pick submissions.csv for the songs.` : "Pick submissions.csv from the Music League export."); return; }
+  let roundId = null, mlRound = null;
+  if (mlRounds && hostDraft.playlist){ mlRound = mlRounds.find(x=>normURL(x["Playlist URL"])===normURL(hostDraft.playlist)); roundId = mlRound?.ID; }
+  if (!roundId){ const newest = [...subs].sort((a,b)=>String(b.Created).localeCompare(String(a.Created)))[0]; roundId = newest?.["Round ID"]; mlRound = mlRounds?.find(x=>x.ID===roundId); }
+  const songs = subs.filter(x=>x["Round ID"]===roundId).map(x=>`${String(x.Title).replace(/\s+-\s+.*$/, "").trim()} - ${x["Artist(s)"]}`);
+  for (let i=songs.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [songs[i],songs[j]]=[songs[j],songs[i]]; }
+  hostDraft.songs = songs.join("\n");
+  if (mlRound){
+    if (!hostDraft.title.trim()) hostDraft.title = mlRound.Name.trim();
+    if (!hostDraft.prompt.trim()) hostDraft.prompt = mlRound.Description.trim();
+    if (!hostDraft.playlist.trim()) hostDraft.playlist = mlRound["Playlist URL"];
+  }
+  renderHost();
+  toast(`Loaded ${songs.length} songs${mlRound?` from "${mlRound.Name.trim()}"`:""}${comps?` and ${comps.length} players`:""}. Check them, then open the round.`);
+}
+
 async function importAnswers(files){
   const r = rounds.find(x=>x.id===hostRoundId); if (!r) return;
   // Files can be picked together or one at a time; each pick is remembered until the round is revealed.
@@ -541,7 +585,9 @@ function renderHost(){
     <div class="grid2">
       <label class="field" for="h-players">Players <span class="hint">One name per line, or load Music League's competitors.csv</span><textarea id="h-players">${esc(hostDraft.players)}</textarea>
         <input type="file" id="h-players-file" accept=".csv,text/csv"></label>
-      <label class="field" for="h-songs">Songs <span class="hint">One per line: Title - Artist</span><textarea id="h-songs">${esc(hostDraft.songs)}</textarea></label>
+      <label class="field" for="h-songs">Songs <span class="hint">Paste the playlist link and they fill in. Or one per line: Title - Artist, or load submissions.csv</span><textarea id="h-songs">${esc(hostDraft.songs)}</textarea>
+        <div class="row"><button class="btn" type="button" id="h-getsongs">Get songs from the playlist link</button></div>
+        <input type="file" id="h-songs-file" accept=".csv,text/csv" multiple aria-label="Load submissions.csv"></label>
     </div>
     <div class="row">
       <button class="btn primary" id="h-save">${r?"Save changes":"Open round for guessing"}</button>
@@ -593,6 +639,7 @@ document.addEventListener("click", async e=>{
   if (e.target.id==="submit-picks") return submitPicks(currentRoundId);
   if (e.target.id==="pin-cancel"){ if (pendingName) pendingName=""; else pinLater=true; nameError=""; render(); return; }
   if (e.target.id==="h-save") return hostSave();
+  if (e.target.id==="h-getsongs") return songsFromPlaylist(false);
   if (e.target.id==="h-delete"){
     if (!confirmDelete){ confirmDelete=true; renderHost(); return; }
     const id = hostRoundId; confirmDelete=false;
@@ -645,6 +692,8 @@ document.addEventListener("change", async e=>{
   }
   if (t.dataset.ans){ revealDraft[t.dataset.ans] = t.value; }
   if (t.id==="h-export" && t.files.length){ await importAnswers([...t.files]); return; }
+  if (t.id==="h-playlist" && hostDraft && /playlist/.test(t.value) && !hostDraft.songs.trim()){ hostDraft.playlist = t.value; return songsFromPlaylist(true); }
+  if (t.id==="h-songs-file" && t.files.length){ await songsFromExport([...t.files]); return; }
   if (t.id==="h-players-file" && t.files[0]){
     const names = namesFromCSV(await t.files[0].text());
     if (!names.length){ toast("Couldn't find a Name column in that file."); return; }

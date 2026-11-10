@@ -191,12 +191,54 @@ async function handle(req, context) {
     await Promise.all(blobs.map(b => s.delete(b.key)));
     return json({ ok: true });
   }
+  // Reads a Spotify playlist's tracks from its public embed page, so the host only has to paste the link.
+  if (route === "host/playlist" && req.method === "POST") {
+    const id = (String(body.url || "").match(/playlist[\/:]([A-Za-z0-9]{10,})/) || [])[1];
+    if (!id) return fail("That doesn't look like a Spotify playlist link.");
+    const res = await fetch(`https://open.spotify.com/embed/playlist/${id}`, {
+      headers: { "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36", "accept-language": "en" },
+      signal: AbortSignal.timeout(10000),
+    }).catch(() => null);
+    if (!res || !res.ok) return fail("Couldn't reach Spotify for that playlist. Try again, or load submissions.csv instead.", 502);
+    const out = playlistFromEmbed(await res.text());
+    if (!out.songs.length) return fail("Couldn't read the songs from that playlist. Load submissions.csv instead.", 502);
+    return json({ ok: true, ...out });
+  }
   if (route === "host/release" && req.method === "POST") {
     await s.delete("claims/" + enc(body.player));
     return json({ ok: true });
   }
 
   return fail("Not found.", 404);
+}
+
+// The embed page carries its data as JSON in <script> tags. Rather than depend on one exact layout,
+// look for the longest list of track-like objects (a spotify:track uri, or a title plus an artist line).
+export function playlistFromEmbed(html) {
+  const blobs = [...String(html).matchAll(/<script[^>]*type="application\/json"[^>]*>([\s\S]*?)<\/script>/g)].map(m => m[1]);
+  let best = [], name = "";
+  const artistOf = o => typeof o.subtitle === "string" ? o.subtitle
+    : Array.isArray(o.artists) ? o.artists.map(a => a && (a.name || a.profile?.name)).filter(Boolean).join(", ") : "";
+  const isTrack = o => o && typeof o === "object" && (typeof o.title === "string" || typeof o.name === "string")
+    && ((typeof o.uri === "string" && o.uri.startsWith("spotify:track:")) || (typeof o.title === "string" && typeof o.subtitle === "string"));
+  const walk = (v, depth) => {
+    if (!v || typeof v !== "object" || depth > 40) return;
+    if (Array.isArray(v)) {
+      const tracks = v.filter(isTrack);
+      if (tracks.length > best.length && tracks.length >= v.length / 2) best = tracks;
+      v.forEach(x => walk(x, depth + 1));
+      return;
+    }
+    if (!name && typeof v.type === "string" && v.type === "playlist" && typeof (v.name || v.title) === "string") name = v.name || v.title;
+    for (const k in v) walk(v[k], depth + 1);
+  };
+  for (const b of blobs) { try { walk(JSON.parse(b), 0); } catch {} }
+  const songs = best.map(o => ({
+    // Spotify adds suffixes like " - 2003 Remaster"; drop them (the round's "Title - Artist" format splits on " - ").
+    title: String(o.title || o.name).replace(/\s+-\s+.*$/, "").trim(),
+    artist: artistOf(o).trim(),
+  })).filter(x => x.title);
+  return { name, songs };
 }
 
 export const config = { path: "/api/*" };
