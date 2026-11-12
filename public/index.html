@@ -392,6 +392,15 @@ function submitBar(r, picks){
   <p class="muted" style="margin:0">Guesses stay hidden from everyone until the reveal. Mark your own song as “That's mine” so it isn't counted.</p>`;
 }
 
+// "Greg leads with 3 points", or a tie: "Greg and Lee are tied for first with 3 points".
+function headline(rows){
+  const top = rows.filter(x=>x.total===rows[0].total).map(x=>x.player);
+  const pts = `${rows[0].total} ${rows[0].total===1?"point":"points"}`;
+  if (top.length===1) return `${esc(top[0])} leads with ${pts}`;
+  if (top.length===rows.length) return `Everyone is tied with ${pts}`;
+  const names = top.length===2 ? top.map(esc).join(" and ") : top.slice(0,-1).map(esc).join(", ")+", and "+esc(top.at(-1));
+  return `${names} are tied for first with ${pts}`;
+}
 function renderBoard(){
   const el = $("#view-leaderboard");
   const revealedRounds = sortedRounds().filter(r=>r.status==="revealed" && r.answers);
@@ -415,7 +424,7 @@ function renderBoard(){
     <td class="num">${x.possible?Math.round(100*x.correct/x.possible)+"%":"–"}</td>
     ${revealedRounds.map(r=>`<td class="num">${x.per[r.id]==null?"–":x.per[r.id]}</td>`).join("")}</tr>`; }).join("");
   el.innerHTML = `<div class="card">
-    <div class="roundhead"><span class="eyebrow">Season standings</span><h2>${esc(rows[0].player)} leads with ${rows[0].total} points</h2></div>
+    <div class="roundhead"><span class="eyebrow">Season standings</span><h2>${headline(rows)}</h2></div>
     <div class="tablewrap"><table><thead><tr><th>#</th><th>Player</th><th class="num">Points</th><th class="num">Hit rate</th>${revealedRounds.map(r=>`<th class="num" title="${esc(r.prompt)}">${esc(r.title)}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table></div>
     <ul class="rules"><li>1 point for each song you match to the right person.</li><li>+${PERFECT_BONUS} bonus for a perfect round.</li><li>Your own song never counts for or against you.</li></ul>
   </div>`;
