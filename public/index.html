@@ -330,8 +330,10 @@ function renderPlay(){
     } else {
       const opts = players.map(p=>{
         const label = p===myPlayer ? `That's mine (${p})` : p;
-        const used = counts[p] && picks[s.id]!==p ? " · used" : "";
-        return `<option value="${esc(p)}" ${picks[s.id]===p?"selected":""}>${esc(label+used)}</option>`;
+        const mine = picks[s.id]===p, n = counts[p]||0, cap = r.perPlayer||0;
+        const full = cap && n>=cap && !mine;
+        const used = cap ? (n ? ` · used ${n} of ${cap}` : "") : (n && !mine ? " · used" : "");
+        return `<option value="${esc(p)}" ${mine?"selected":""} ${full?"disabled":""}>${esc(label+used)}</option>`;
       }).join("");
       right = `<select id="pick-${esc(s.id)}" data-song="${esc(s.id)}" aria-label="Who submitted ${esc(s.title)}" ${canGuess?"":"disabled"}><option value="">Who submitted this?</option>${opts}</select>`;
       if (canGuess) extra = `<input type="text" class="note" data-note="${esc(s.id)}" maxlength="200" value="${esc(myNotesNow[s.id]||"")}" placeholder="Add a note (optional, hidden until the reveal)" aria-label="Note about ${esc(s.title)}">`;
@@ -359,7 +361,7 @@ function renderPlay(){
   } else {
     const done = Object.keys(picks).length;
     const n = started[r.id] || 0;
-    summary = `<div class="row muted"><span>${done} of ${r.songs.length} guessed</span><span>·</span><span>${n} ${n===1?"player has":"players have"} submitted</span>${!myPlayer?`<span>·</span><strong style="color:var(--accent)">Pick your name first</strong>`:""}</div>`;
+    summary = `<div class="row muted"><span>${done} of ${r.songs.length} guessed</span>${r.perPlayer?`<span>·</span><span>Each name can be picked ${r.perPlayer===1?"once":r.perPlayer+" times"}</span>`:""}<span>·</span><span>${n} ${n===1?"player has":"players have"} submitted</span>${!myPlayer?`<span>·</span><strong style="color:var(--accent)">Pick your name first</strong>`:""}</div>`;
   }
 
   el.innerHTML = `<div class="card">
@@ -566,7 +568,7 @@ function draftFrom(r){
     const prev = sortedRounds().slice(-1)[0];
     return {title:`Round ${rounds.length+1}`, prompt:"", playlist:"", players:(prev?.players||[]).join("\n"), songs:""};
   }
-  return {title:r.title, prompt:r.prompt||"", playlist:r.playlist||"", players:(r.players||[]).join("\n"), songs:r.songs.map(s=>s.artist?`${s.title} - ${s.artist}`:s.title).join("\n")};
+  return {perPlayer:r.perPlayer?String(r.perPlayer):"", title:r.title, prompt:r.prompt||"", playlist:r.playlist||"", players:(r.players||[]).join("\n"), songs:r.songs.map(s=>s.artist?`${s.title} - ${s.artist}`:s.title).join("\n")};
 }
 
 function renderHost(){
@@ -594,6 +596,7 @@ function renderHost(){
       <label class="field" for="h-playlist">Playlist link <span class="hint">Optional, from Music League or Spotify</span><input type="url" id="h-playlist" value="${esc(hostDraft.playlist)}" placeholder="https://open.spotify.com/playlist/…"></label>
     </div>
     <label class="field" for="h-prompt">Prompt<input type="text" id="h-prompt" value="${esc(hostDraft.prompt)}" placeholder="e.g. Songs that make you drive too fast"></label>
+    <label class="field" for="h-per">Times each name can be picked <span class="hint">Usually how many songs each player submits. ${r?"Leave blank for no limit.":"Leave blank to use songs ÷ players."}</span><input type="number" id="h-per" min="1" max="20" inputmode="numeric" value="${esc(hostDraft.perPlayer||"")}" placeholder="${r?"No limit":"Auto"}" style="max-width:160px"></label>
     <div class="grid2">
       <label class="field" for="h-players">Players <span class="hint">One name per line, or load Music League's competitors.csv</span><textarea id="h-players">${esc(hostDraft.players)}</textarea>
         <input type="file" id="h-players-file" accept=".csv,text/csv"></label>
@@ -680,7 +683,7 @@ document.addEventListener("input", e=>{
     if (r && w) w.innerHTML = submitBar(r, myPicks(currentRoundId));
     return;
   }
-  const map = {"h-title":"title","h-prompt":"prompt","h-playlist":"playlist","h-players":"players","h-songs":"songs"};
+  const map = {"h-per":"perPlayer","h-title":"title","h-prompt":"prompt","h-playlist":"playlist","h-players":"players","h-songs":"songs"};
   if (map[e.target.id] && hostDraft){ hostDraft[map[e.target.id]] = e.target.value; if (hostRoundId==="new") ls.set("wsii.newRound", JSON.stringify(hostDraft)); }
 });
 document.addEventListener("change", async e=>{
@@ -736,8 +739,10 @@ async function hostSave(){
   // keep song ids stable when titles match so existing guesses survive edits
   const oldByKey = new Map((existing?.songs||[]).map(s=>[(s.title+"|"+s.artist).toLowerCase(), s.id]));
   const songs = parsed.map(s=>({id: oldByKey.get((s.title+"|"+s.artist).toLowerCase()) || rid(), ...s}));
-  const r = existing ? {...existing, title:d.title.trim()||existing.title, prompt:d.prompt.trim(), playlist:d.playlist.trim(), players, songs}
-                     : {id:rid(), title:d.title.trim()||`Round ${rounds.length+1}`, prompt:d.prompt.trim(), playlist:d.playlist.trim(), players, songs, status:"open", answers:null, createdAt:Date.now()};
+  // New rounds default to songs ÷ players (rounded up); an edited round with the box blank has no limit.
+  const per = parseInt(d.perPlayer, 10) || (existing ? 0 : Math.ceil(songs.length / players.length));
+  const r = existing ? {...existing, title:d.title.trim()||existing.title, prompt:d.prompt.trim(), playlist:d.playlist.trim(), players, songs, perPlayer:per}
+                     : {id:rid(), title:d.title.trim()||`Round ${rounds.length+1}`, prompt:d.prompt.trim(), playlist:d.playlist.trim(), players, songs, perPlayer:per, status:"open", answers:null, createdAt:Date.now()};
   try{
     await hostCall("round", {round:r});
     if (!existing) ls.set("wsii.newRound", null);

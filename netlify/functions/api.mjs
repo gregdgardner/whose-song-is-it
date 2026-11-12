@@ -101,6 +101,8 @@ function cleanRound(r) {
     prompt: String(r.prompt || "").trim(),
     playlist: /^https:\/\//.test(r.playlist || "") ? r.playlist : "",
     players, songs,
+    // Most times one name can be picked in this round (0 = no limit), usually the songs each player submits.
+    perPlayer: Math.max(0, Math.min(20, parseInt(r.perPlayer, 10) || 0)),
     status: r.status === "revealed" ? "revealed" : "open",
     answers: r.status === "revealed" && r.answers ? r.answers : null,
     createdAt: Number(r.createdAt) || Date.now(),
@@ -159,6 +161,12 @@ async function handle(req, context) {
     const songIds = new Set(round.songs.map(x => x.id));
     const clean = {};
     for (const [k, v] of Object.entries(picks || {})) if (songIds.has(k) && round.players.includes(v)) clean[k] = v;
+    if (round.perPlayer) {
+      const counts = {};
+      for (const v of Object.values(clean)) counts[v] = (counts[v] || 0) + 1;
+      const over = Object.keys(counts).find(p => counts[p] > round.perPlayer);
+      if (over) return fail(`You picked ${over} ${counts[over]} times. Each name can be picked at most ${round.perPlayer} ${round.perPlayer === 1 ? "time" : "times"} this round.`);
+    }
     // Optional note per pick, private until the round is revealed (same as picks).
     const cleanNotes = {};
     for (const [k, v] of Object.entries(body.notes || {})) { const t = String(v || "").trim().slice(0, 200); if (songIds.has(k) && t) cleanNotes[k] = t; }

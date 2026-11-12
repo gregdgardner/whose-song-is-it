@@ -8,6 +8,7 @@ Unofficial companion game for Greg's Music League: players guess who submitted e
 - Players pick a name with no login and set a 4-digit PIN; other devices join that name with the PIN (claims hold several token hashes; 5 wrong PINs lock it for 15 minutes). Names claimed before PINs existed are prompted to add one. The host can unlock a name on the Host tab (clears the PIN). The host code is set by whoever first enters one on the Host tab.
 - Each pick can carry an optional note (max 200 chars), private until the reveal like picks, then shown under the song.
 - Blobs reads can lag right after a write, so the page keeps the chosen name and picks locally and never clears them just because the server hasn't caught up.
+- Rounds have `perPlayer`: the most times one name can be picked (0 = no limit). New rounds default to ceil(songs ÷ players); the pick menu disables used-up names and `/api/guess` rejects picks over the limit.
 - Players press Submit to send picks; they can resubmit until the reveal.
 - Scoring: 1 point per correct match, +3 for a perfect round; a player's own song never counts. Leaderboard is cumulative across revealed rounds.
 - Every push deploys every league site and uses Netlify credits (the team ran out once in Nov 2026 and Greg upgraded). Bundle changes into few pushes.
