@@ -109,6 +109,37 @@ function cleanRound(r) {
   };
 }
 
+// Optional server-side ping after a guess saves. No-ops unless both env vars are set
+// (so sister sites without them stay unchanged). Failures are swallowed so the guess still succeeds.
+async function notifyGuessSubmitted({ req, context, s, round, player, songsGuessed, firstSubmit }) {
+  const url = process.env.GUESS_WEBHOOK_URL;
+  const auth = process.env.GUESS_WEBHOOK_AUTH;
+  if (!url || !auth) return;
+  const payload = {
+    event: "guess_submitted",
+    site: siteName(req, context),
+    roundId: round.id,
+    roundTitle: round.title,
+    player,
+    songsGuessed,
+    firstSubmit,
+    timestamp: new Date().toISOString(),
+  };
+  try {
+    payload.playerCount = (round.players || []).length;
+    const { blobs } = await s.list({ prefix: `guesses/${round.id}/` });
+    payload.submittedCount = blobs.length;
+  } catch {}
+  try {
+    await fetch(url, {
+      method: "POST",
+      headers: { Authorization: auth, "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(3000),
+    });
+  } catch {}
+}
+
 export default async (req, context) => {
   try { return await handle(req, context); }
   catch (e) { console.error(e); return fail("The game server hit a problem: " + (e && e.message || e), 500); }
@@ -170,7 +201,13 @@ async function handle(req, context) {
     // Optional note per pick, private until the round is revealed (same as picks).
     const cleanNotes = {};
     for (const [k, v] of Object.entries(body.notes || {})) { const t = String(v || "").trim().slice(0, 200); if (songIds.has(k) && t) cleanNotes[k] = t; }
-    await s.setJSON(`guesses/${roundId}/${enc(player)}`, { player, roundId, picks: clean, notes: cleanNotes, at: Date.now() });
+    const guessKey = `guesses/${roundId}/${enc(player)}`;
+    let firstSubmit = true;
+    if (process.env.GUESS_WEBHOOK_URL && process.env.GUESS_WEBHOOK_AUTH) {
+      try { firstSubmit = !(await s.get(guessKey, { type: "json" })); } catch {}
+    }
+    await s.setJSON(guessKey, { player, roundId, picks: clean, notes: cleanNotes, at: Date.now() });
+    await notifyGuessSubmitted({ req, context, s, round, player, songsGuessed: Object.keys(clean).length, firstSubmit });
     return json({ ok: true });
   }
 
