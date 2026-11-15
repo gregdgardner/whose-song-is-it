@@ -99,6 +99,7 @@ th{font-size:12px;font-weight:500;letter-spacing:.03em;text-transform:uppercase;
 td.num,th.num{text-align:right}
 tr.me td{background:var(--accent-soft)}
 .rank{font-weight:600;color:var(--muted)}
+#view-leaderboard{display:flex;flex-direction:column;gap:20px}
 .empty{text-align:center;padding:28px 18px;color:var(--muted)}
 .toast{position:fixed;left:50%;transform:translateX(-50%);top:calc(76px + env(safe-area-inset-top, 0px));max-width:calc(100% - 32px);text-align:center;background:var(--ink);color:#fff;padding:9px 16px;border-radius:4px;font-weight:500;font-size:14px;z-index:20}
 .submitbar{position:sticky;bottom:0;bottom:env(safe-area-inset-bottom, 0px);display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:12px 14px;margin-inline:-6px;background:var(--bar);color:var(--bar-ink);border-radius:6px}
@@ -395,14 +396,21 @@ function submitBar(r, picks){
 }
 
 // "Greg leads with 3 points", or a tie: "Greg and Lee are tied for first with 3 points".
-function headline(rows){
-  const top = rows.filter(x=>x.total===rows[0].total).map(x=>x.player);
-  const pts = `${rows[0].total} ${rows[0].total===1?"point":"points"}`;
-  if (top.length===1) return `${esc(top[0])} leads with ${pts}`;
+// The round table passes its own wording ("won the round with", "tied for the round win with").
+function headline(rows, key="total", lead="leads with", tied="are tied for first with"){
+  const top = rows.filter(x=>x[key]===rows[0][key]).map(x=>x.player);
+  const pts = `${rows[0][key]} ${rows[0][key]===1?"point":"points"}`;
+  if (top.length===1) return `${esc(top[0])} ${lead} ${pts}`;
   if (top.length===rows.length) return `Everyone is tied with ${pts}`;
   const names = top.length===2 ? top.map(esc).join(" and ") : top.slice(0,-1).map(esc).join(", ")+", and "+esc(top.at(-1));
-  return `${names} are tied for first with ${pts}`;
+  return `${names} ${tied} ${pts}`;
 }
+// Standard competition ranking: tied players share a rank and the next rank skips ("1, 1, 3").
+function ranked(rows, key){
+  let rank=0, last=null;
+  return rows.map((x,i)=>{ if (x[key]!==last){ rank=i+1; last=x[key]; } return {...x, rank}; });
+}
+let boardRoundId = null;  // round shown in "Round results"; null follows the newest revealed round
 function renderBoard(){
   const el = $("#view-leaderboard");
   const revealedRounds = sortedRounds().filter(r=>r.status==="revealed" && r.answers);
@@ -411,7 +419,7 @@ function renderBoard(){
     let total=0, correct=0, possible=0; const per={};
     for (const r of revealedRounds){
       const p = guesses[r.id]?.[player]; if (!p || !Object.keys(p).length){ per[r.id]=null; continue; }
-      const sc = scoreFor(r, p, player); per[r.id]=sc.points; total+=sc.points; correct+=sc.correct; possible+=sc.possible;
+      const sc = scoreFor(r, p, player); per[r.id]=sc; total+=sc.points; correct+=sc.correct; possible+=sc.possible;
     }
     return {player, total, correct, possible, per};
   }).sort((a,b)=>b.total-a.total || b.correct-a.correct || a.player.localeCompare(b.player));
@@ -420,13 +428,28 @@ function renderBoard(){
     el.innerHTML = `<div class="card empty"><h2>No scores yet</h2><p>Scores show up once a round is revealed in the Host tab.</p></div>`;
     return;
   }
-  let rank=0, last=null;
-  const body = rows.map((x,i)=>{ if (x.total!==last){rank=i+1; last=x.total;}
-    return `<tr class="${x.player===myPlayer?"me":""}"><td class="rank">${rank}</td><td><strong>${esc(x.player)}</strong></td><td class="num"><strong>${x.total}</strong></td>
+
+  // One round's results: only players who guessed in that round, using the same scores as the season table.
+  const br = revealedRounds.find(r=>r.id===boardRoundId) || revealedRounds[revealedRounds.length-1];
+  const roundRows = rows.filter(x=>x.per[br.id]).map(x=>({player:x.player, ...x.per[br.id]}))
+    .sort((a,b)=>b.points-a.points || b.correct-a.correct || a.player.localeCompare(b.player));
+  const pick = revealedRounds.length>1
+    ? `<select id="boardpick" aria-label="Choose round">${revealedRounds.slice().reverse().map(r=>`<option value="${esc(r.id)}" ${r.id===br.id?"selected":""}>${esc(r.title)}</option>`).join("")}</select>`
+    : "";
+  const roundBody = ranked(roundRows, "points").map(x=>`<tr class="${x.player===myPlayer?"me":""}"><td class="rank">${x.rank}</td><td><strong>${esc(x.player)}</strong>${x.perfect?` <span class="tag ok">Perfect +${PERFECT_BONUS}</span>`:""}</td>
+    <td class="num"><strong>${x.points}</strong></td><td class="num">${x.correct}/${x.possible}</td></tr>`).join("");
+  const roundCard = `<div class="card" id="round-results">
+    <div class="row" style="justify-content:space-between"><span class="eyebrow">Round results</span>${pick}</div>
+    <div class="roundhead"><h2 class="roundtitle">${esc(br.title)}</h2>${roundRows.length?`<p class="prompt">${headline(roundRows, "points", "won the round with", "tied for the round win with")}</p>`:""}</div>
+    ${roundRows.length ? `<div class="tablewrap"><table><thead><tr><th>#</th><th>Player</th><th class="num">Points</th><th class="num">Correct</th></tr></thead><tbody>${roundBody}</tbody></table></div>`
+      : `<p class="muted" style="margin:0">Nobody guessed in this round.</p>`}
+  </div>`;
+
+  const body = ranked(rows, "total").map(x=>`<tr class="${x.player===myPlayer?"me":""}"><td class="rank">${x.rank}</td><td><strong>${esc(x.player)}</strong></td><td class="num"><strong>${x.total}</strong></td>
     <td class="num">${x.possible?Math.round(100*x.correct/x.possible)+"%":"–"}</td>
-    ${revealedRounds.map(r=>`<td class="num">${x.per[r.id]==null?"–":x.per[r.id]}</td>`).join("")}</tr>`; }).join("");
-  el.innerHTML = `<div class="card">
-    <div class="roundhead"><span class="eyebrow">Season standings</span><h2>${headline(rows)}</h2></div>
+    ${revealedRounds.map(r=>`<td class="num">${x.per[r.id]==null?"–":x.per[r.id].points}</td>`).join("")}</tr>`).join("");
+  el.innerHTML = roundCard + `<div class="card" id="season-standings">
+    <div class="roundhead"><span class="eyebrow">Overall standings</span><h2>${headline(rows)}</h2></div>
     <div class="tablewrap"><table><thead><tr><th>#</th><th>Player</th><th class="num">Points</th><th class="num">Hit rate</th>${revealedRounds.map(r=>`<th class="num" title="${esc(r.prompt)}">${esc(r.title)}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table></div>
     <ul class="rules"><li>1 point for each song you match to the right person.</li><li>+${PERFECT_BONUS} bonus for a perfect round.</li><li>Your own song never counts for or against you.</li></ul>
   </div>`;
@@ -689,6 +712,7 @@ document.addEventListener("input", e=>{
 document.addEventListener("change", async e=>{
   const t = e.target;
   if (t.id==="roundpick"){ currentRoundId = t.value; renderPlay(); return; }
+  if (t.id==="boardpick"){ boardRoundId = t.value; renderBoard(); return; }
   if (t.id==="hostpick"){ hostRoundId = t.value; hostDraft=null; revealDraft={}; confirmDelete=false; renderHost(); return; }
   if (t.id==="whoami"){
     const name = t.value;
@@ -756,7 +780,7 @@ async function hostReveal(){
   const answers = {...(r.status==="revealed"&&r.answers?r.answers:{}), ...revealDraft};
   const missing = r.songs.filter(s=>!answers[s.id]).length;
   if (missing){ toast(`Pick a submitter for ${missing} more ${missing===1?"song":"songs"}.`); return; }
-  try{ await hostCall("round", {round:{...r, answers, status:"revealed"}}); revealDraft={}; toast("Revealed. Scores are in."); currentRoundId=r.id; await refresh(); renderHost(); }
+  try{ await hostCall("round", {round:{...r, answers, status:"revealed"}}); revealDraft={}; toast("Revealed. Scores are in."); currentRoundId=r.id; boardRoundId=null; await refresh(); renderHost(); }
   catch(err){ toast(err.message); }
 }
 
