@@ -85,6 +85,47 @@ async function claimName(s, player, token, pin) {
   return null;
 }
 
+// Guessing deadline. Music League's voting deadline goes here, so guessing locks before ML shows
+// who submitted what. Stored as an ISO UTC string; shown in Pacific time.
+const TZ = "America/Los_Angeles";
+function tzOffsetMs(ts) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: TZ, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })
+    .formatToParts(new Date(ts)).map(x => [x.type, x.value]));
+  return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute, +p.second) - Math.floor(ts / 1000) * 1000;
+}
+// Accepts an ISO time with a zone ("2026-11-20T21:00:00-08:00", "...Z"), epoch milliseconds, or a
+// zone-less "YYYY-MM-DDTHH:mm" read as Pacific time. Returns an ISO UTC string, null for blank, or undefined if invalid.
+export function parseDeadline(v) {
+  if (v === null || v === undefined || v === "") return null;
+  let ms;
+  if (typeof v === "number") ms = v;
+  else {
+    const str = String(v).trim();
+    const m = str.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/);
+    if (m) {
+      const guess = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0));
+      ms = guess - tzOffsetMs(guess);
+      ms = guess - tzOffsetMs(ms);
+    } else ms = Date.parse(str);
+  }
+  if (!Number.isFinite(ms) || ms < Date.UTC(2000, 0, 1) || ms > Date.UTC(2100, 0, 1)) return undefined;
+  return new Date(ms).toISOString();
+}
+export function deadlineText(iso) {
+  return new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "long", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(iso)) + " PT";
+}
+// Why guessing is shut for a round, or null if it's open.
+function closedReason(round, now = Date.now()) {
+  if (round.status !== "open") return "revealed";
+  if (round.closedAt) return "closed";
+  if (round.guessDeadline && now >= Date.parse(round.guessDeadline)) return "deadline";
+  return null;
+}
+const BAD_DEADLINE = "Guessing due by must be a date and time, like 2026-11-20T21:00 (Pacific) or an ISO time with a zone.";
+const normURL = u => String(u || "").split("?")[0].replace(/\/+$/, "").toLowerCase();
+const roundView = r => ({ ...r, guessDeadline: r.guessDeadline || null, closedAt: r.closedAt || null,
+  guessDeadlineText: r.guessDeadline ? deadlineText(r.guessDeadline) : null, guessingOpen: !closedReason(r) });
+
 async function isHost(s, code) {
   if (!code) return false;
   const meta = await s.get("meta/host", { type: "json" });
@@ -105,6 +146,10 @@ function cleanRound(r) {
     perPlayer: Math.max(0, Math.min(20, parseInt(r.perPlayer, 10) || 0)),
     status: r.status === "revealed" ? "revealed" : "open",
     answers: r.status === "revealed" && r.answers ? r.answers : null,
+    // Guessing locks at this time (ISO UTC, usually Music League's voting deadline). null = no deadline.
+    guessDeadline: parseDeadline(r.guessDeadline) || null,
+    // Set when the host closes guessing by hand before the deadline. null = not closed.
+    closedAt: parseDeadline(r.closedAt) || null,
     createdAt: Number(r.createdAt) || Date.now(),
   };
 }
@@ -123,6 +168,7 @@ async function notifyGuessSubmitted({ req, context, s, round, player, songsGuess
     player,
     songsGuessed,
     firstSubmit,
+    guessDeadline: round.guessDeadline || null,
     timestamp: new Date().toISOString(),
   };
   try {
@@ -172,7 +218,7 @@ async function handle(req, context) {
       }
     }
     const hostSet = !!(await s.get("meta/host"));
-    return json({ rounds, guesses: byRound, notes, started, claimed: claims, me, pinSet: me ? !!myClaim.pinHash : null, hostSet });
+    return json({ rounds, guesses: byRound, notes, started, claimed: claims, me, pinSet: me ? !!myClaim.pinHash : null, hostSet, now: Date.now() });
   }
 
   // A device claims a player name: new names set a PIN, and other devices join with that PIN.
@@ -188,7 +234,10 @@ async function handle(req, context) {
     if (err) return fail(err[0], err[1] === 400 ? 400 : 403);
     const round = await s.get("rounds/" + roundId, { type: "json" });
     if (!round) return fail("That round no longer exists.", 404);
-    if (round.status !== "open") return fail("Guessing is closed for this round.", 409);
+    const why = closedReason(round);
+    if (why === "revealed") return fail("Guessing is closed for this round.", 409);
+    if (why === "closed") return fail("The host closed guessing for this round. Guesses are locked until the reveal.", 409);
+    if (why === "deadline") return fail(`Guessing closed ${deadlineText(round.guessDeadline)}. Guesses are locked until the reveal.`, 409);
     const songIds = new Set(round.songs.map(x => x.id));
     const clean = {};
     for (const [k, v] of Object.entries(picks || {})) if (songIds.has(k) && round.players.includes(v)) clean[k] = v;
@@ -223,11 +272,34 @@ async function handle(req, context) {
   if (route.startsWith("host/") && !(await isHost(s, body.code))) return fail("Enter the host code first.", 403);
 
   if (route === "host/round" && req.method === "POST") {
-    const r = cleanRound(body.round || {});
+    const raw = body.round || {};
+    if ("guessDeadline" in raw && parseDeadline(raw.guessDeadline) === undefined) return fail(BAD_DEADLINE);
+    const r = cleanRound(raw);
     if (r.players.length < 2) return fail("Add at least two players.");
     if (!r.songs.length) return fail("Add the round's songs.");
+    // Saving a round without these fields keeps what's stored, so an edit can't wipe a deadline by accident.
+    const prev = await s.get("rounds/" + r.id, { type: "json" });
+    if (prev && !("guessDeadline" in raw)) r.guessDeadline = prev.guessDeadline || null;
+    if (prev && !("closedAt" in raw)) r.closedAt = prev.closedAt || null;
     await s.setJSON("rounds/" + r.id, r);
-    return json({ ok: true, round: r });
+    return json({ ok: true, round: roundView(r) });
+  }
+  // Set or move a round's guessing deadline, or close/reopen guessing by hand, without resending the round.
+  // Body: {code, roundId | playlist, guessDeadline?: ISO | "YYYY-MM-DDTHH:mm" (Pacific) | ms | null, closed?: bool}
+  if (route === "host/deadline" && req.method === "POST") {
+    let round = body.roundId ? await s.get("rounds/" + String(body.roundId).replace(/[^\w-]/g, ""), { type: "json" }) : null;
+    if (!round && body.playlist) round = (await listJSON(s, "rounds/")).map(([, r]) => r).find(r => r.playlist && normURL(r.playlist) === normURL(body.playlist)) || null;
+    if (!round) return fail("That round doesn't exist.", 404);
+    if (!("guessDeadline" in body) && !("closed" in body)) return fail("Send guessDeadline, closed, or both.");
+    const next = { ...round };
+    if ("guessDeadline" in body) {
+      const d = parseDeadline(body.guessDeadline);
+      if (d === undefined) return fail(BAD_DEADLINE);
+      next.guessDeadline = d;
+    }
+    if ("closed" in body) next.closedAt = body.closed ? (round.closedAt || new Date().toISOString()) : null;
+    await s.setJSON("rounds/" + round.id, next);
+    return json({ ok: true, round: roundView(next) });
   }
   if (route === "host/delete" && req.method === "POST") {
     const id = String(body.id || "");

@@ -58,12 +58,19 @@ h3{font-size:15px;margin:0}
 .pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:500;letter-spacing:.03em;text-transform:uppercase;padding:3px 10px;border-radius:999px}
 .pill.open{background:var(--accent-soft);color:var(--accent)}
 .pill.revealed{background:var(--bar);color:var(--bar-ink)}
+.pill.closed{background:var(--bad-soft);color:var(--bad)}
+.due{display:flex;flex-direction:column;gap:2px;background:var(--accent-soft);border-left:4px solid var(--accent);border-radius:4px;padding:10px 14px}
+.due strong{font-size:16px;font-weight:600;color:var(--ink)}
+.due span{font-size:13px;color:var(--muted)}
+.due.closed{background:var(--bad-soft);border-left-color:var(--bad)}
+.due.closed strong{color:var(--bad)}
 select,input,textarea{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:8px 10px;max-width:100%}
 select:disabled,input:disabled,textarea:disabled{opacity:.45;cursor:not-allowed}
 textarea{width:100%;min-height:120px;resize:vertical;font-size:13px}
 input[type=text],input[type=url]{width:100%}
-label.field{display:flex;flex-direction:column;gap:6px;font-weight:500;font-size:14px}
-label.field .hint{font-weight:400;color:var(--muted);font-size:13px}
+.field{display:flex;flex-direction:column;gap:6px;font-weight:500;font-size:14px}
+.field > label{display:flex;flex-direction:column;gap:6px}
+.field .hint{font-weight:400;color:var(--muted);font-size:13px}
 .btn{font:500 15px var(--f-body);border-radius:4px;padding:9px 18px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 .btn.danger{color:var(--bad)}
@@ -157,11 +164,53 @@ let pendingName = "", pinMode = "";  // a name picked but not yet confirmed with
 let pinSet = null, pinLater = false;
 let view = "play", currentRoundId = null;
 let hostRoundId = "new", hostDraft = null, revealDraft = {}, confirmDelete = false;
+let clockSkew = 0;        // server clock minus this device's clock, so deadlines lock on time even if the phone's clock is off
+const nowMs = () => Date.now() + clockSkew;
 
 const $ = (s, el=document) => el.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const rid = () => Math.random().toString(36).slice(2, 10);
 function toast(msg){ const t=$("#toast"); t.textContent=msg; t.hidden=false; clearTimeout(toast.h); toast.h=setTimeout(()=>t.hidden=true, 2600); }
+
+/* ---------- guessing deadline (always shown in Pacific time) ---------- */
+const TZ = "America/Los_Angeles";
+function tzParts(ms){
+  return Object.fromEntries(new Intl.DateTimeFormat("en-US",{timeZone:TZ,hourCycle:"h23",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit"})
+    .formatToParts(new Date(ms)).map(x=>[x.type,x.value]));
+}
+function tzOffsetMs(ms){ const p=tzParts(ms); return Date.UTC(+p.year,+p.month-1,+p.day,+p.hour%24,+p.minute,+p.second) - Math.floor(ms/1000)*1000; }
+// "2026-11-20T21:00" typed in the host form means 9 PM Pacific, wherever the host's browser is.
+function ptLocalToISO(v){
+  const m = String(v||"").match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/); if (!m) return null;
+  const guess = Date.UTC(+m[1],+m[2]-1,+m[3],+m[4],+m[5]);
+  let ms = guess - tzOffsetMs(guess); ms = guess - tzOffsetMs(ms);
+  return new Date(ms).toISOString();
+}
+function isoToPTLocal(iso){
+  if (!iso) return ""; const p = tzParts(Date.parse(iso));
+  return `${p.year}-${p.month}-${p.day}T${String(+p.hour%24).padStart(2,"0")}:${p.minute}`;
+}
+const fmtPT = iso => new Intl.DateTimeFormat("en-US",{timeZone:TZ,weekday:"long",month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}).format(new Date(iso)) + " PT";
+// "open", "closed" (host closed it by hand), "past" (deadline passed) or "revealed".
+function guessState(r){
+  if (r.status!=="open") return "revealed";
+  if (r.closedAt) return "closed";
+  if (r.guessDeadline && nowMs() >= Date.parse(r.guessDeadline)) return "past";
+  return "open";
+}
+function timeLeft(iso){
+  const min = Math.max(0, Math.round((Date.parse(iso) - nowMs())/60000));
+  if (min < 60) return `${min} ${min===1?"minute":"minutes"} left`;
+  const h = Math.round(min/60); if (h < 48) return `${h} ${h===1?"hour":"hours"} left`;
+  const d = Math.round(h/24); return d < 7 ? `${d} days left` : "";
+}
+function dueLine(r){
+  const st = guessState(r);
+  if (st==="open" && r.guessDeadline) return `<div class="due" id="dueline"><strong>Guessing due by ${esc(fmtPT(r.guessDeadline))}</strong><span>${timeLeft(r.guessDeadline)?esc(timeLeft(r.guessDeadline))+". ":""}Guesses lock when Music League voting ends.</span></div>`;
+  if (st==="past") return `<div class="due closed" id="dueline"><strong>Guessing closed ${esc(fmtPT(r.guessDeadline))}</strong><span>Guesses are locked. Waiting for the host to reveal.</span></div>`;
+  if (st==="closed") return `<div class="due closed" id="dueline"><strong>Guessing closed</strong><span>The host closed guessing. Waiting for the reveal.</span></div>`;
+  return "";
+}
 
 /* ---------- this device's identity (kept in the browser) ---------- */
 const ls = {
@@ -188,6 +237,7 @@ try{ localPicks = JSON.parse(ls.get("wsii.picks") || "{}") || {}; }catch{ localP
 async function refresh(){
   try{
     const st = await api("state", {player:myPlayer, token});
+    if (st.now) clockSkew = st.now - Date.now();
     rounds = st.rounds; guesses = st.guesses; notes = st.notes || {}; started = st.started; claimed = st.claimed; hostSet = st.hostSet;
     // Older names were claimed before PINs existed; offer to add one. (Skip it if this device just set one and the server hasn't caught up.)
     pinSet = st.me && st.me===myPlayer ? st.pinSet : null;
@@ -227,7 +277,7 @@ async function submitPicks(roundId){
     submitted[roundId] = picks; ls.set("wsii.submitted", JSON.stringify(submitted));
     submittedNotes[roundId] = n; ls.set("wsii.submittedNotes", JSON.stringify(submittedNotes));
     toast("Guesses submitted"); nameError = ""; refresh();
-  }catch(e){ nameError = e.message; toast(e.message); }
+  }catch(e){ nameError = e.message; toast(e.message); refresh(); }
   submitting = false; render();
 }
 
@@ -268,7 +318,7 @@ function render(){
 }
 
 function roundPicker(id, selected){
-  return `<select id="${id}" aria-label="Choose round">${sortedRounds().slice().reverse().map(r=>`<option value="${esc(r.id)}" ${r.id===selected?"selected":""}>${esc(r.title)}${r.status==="open"?" (guessing open)":""}</option>`).join("")}</select>`;
+  return `<select id="${id}" aria-label="Choose round">${sortedRounds().slice().reverse().map(r=>`<option value="${esc(r.id)}" ${r.id===selected?"selected":""}>${esc(r.title)}${guessState(r)==="open"?" (guessing open)":r.status==="open"?" (guessing closed)":""}</option>`).join("")}</select>`;
 }
 
 function renderPlay(){
@@ -286,7 +336,8 @@ function renderPlay(){
   const r = rounds.find(x=>x.id===currentRoundId);
   const picks = myPlayer ? myPicks(r.id) : {};
   const players = r.players || [];
-  const canGuess = !!myPlayer && r.status==="open";
+  const gs = guessState(r);
+  const canGuess = !!myPlayer && gs==="open";
   const revealed = r.status==="revealed" && r.answers;
 
   const whoami = `<label class="field" for="whoami">Who are you in the league?
@@ -366,9 +417,10 @@ function renderPlay(){
   }
 
   el.innerHTML = `<div class="card">
-    <div class="row" style="justify-content:space-between">${roundPicker("roundpick", r.id)}<span class="pill ${r.status}">${r.status==="open"?"Guessing open":"Revealed"}</span></div>
+    <div class="row" style="justify-content:space-between">${roundPicker("roundpick", r.id)}<span class="pill ${gs==="open"?"open":gs==="revealed"?"revealed":"closed"}">${gs==="open"?"Guessing open":gs==="revealed"?"Revealed":"Guessing closed"}</span></div>
     <div class="roundhead"><span class="eyebrow">${r.songs.length} songs</span><h2 class="roundtitle">${esc(r.title)}</h2>${r.prompt && r.prompt!==r.title ? `<p class="prompt">${esc(r.prompt)}</p>`:""}
       ${r.playlist?`<a href="${esc(r.playlist)}" target="_blank" rel="noopener">Listen to the playlist</a>`:""}</div>
+    ${dueLine(r)}
     ${whoami}
     ${pinForm}
     ${nameNote}
@@ -381,6 +433,12 @@ function renderPlay(){
 function submitBar(r, picks){
   const done = Object.keys(picks).length, total = r.songs.length;
   const last = lastSubmitted(r.id);
+  if (guessState(r)!=="open"){
+    const sent = last ? Object.keys(last).length : 0;
+    const status = !myPlayer ? "Guessing is closed for this round." : sent ? `Your ${sent} of ${total} submitted guesses are locked in.` : "You didn't submit guesses for this round.";
+    return `<div class="submitbar"><button class="btn primary" id="submit-picks" disabled>Guessing closed</button><span class="muted">${esc(status)}</span></div>
+    <p class="muted" style="margin:0">Guesses stay hidden from everyone until the reveal.</p>`;
+  }
   const dirty = !last || !sameJSON(last, picks) || !sameJSON(lastSubmittedNotes(r.id), Object.fromEntries(Object.entries(myNotes(r.id)).map(([k,v])=>[k,v.trim()]).filter(([,v])=>v)));
   let status, label;
   if (!myPlayer){ status = "Pick your name to start guessing."; label = "Submit my guesses"; }
@@ -589,11 +647,18 @@ function draftFrom(r){
     // A new round being typed is kept on this device, so a refresh doesn't lose it.
     try{ const saved = JSON.parse(ls.get("wsii.newRound")||"null"); if (saved && typeof saved.songs==="string") return saved; }catch{}
     const prev = sortedRounds().slice(-1)[0];
-    return {title:`Round ${rounds.length+1}`, prompt:"", playlist:"", players:(prev?.players||[]).join("\n"), songs:""};
+    return {title:`Round ${rounds.length+1}`, prompt:"", playlist:"", players:(prev?.players||[]).join("\n"), songs:"", deadline:""};
   }
-  return {perPlayer:r.perPlayer?String(r.perPlayer):"", title:r.title, prompt:r.prompt||"", playlist:r.playlist||"", players:(r.players||[]).join("\n"), songs:r.songs.map(s=>s.artist?`${s.title} - ${s.artist}`:s.title).join("\n")};
+  return {deadline:isoToPTLocal(r.guessDeadline), perPlayer:r.perPlayer?String(r.perPlayer):"", title:r.title, prompt:r.prompt||"", playlist:r.playlist||"", players:(r.players||[]).join("\n"), songs:r.songs.map(s=>s.artist?`${s.title} - ${s.artist}`:s.title).join("\n")};
 }
 
+// Open round: where guessing stands, with a button to close it now or reopen it.
+function hostGuessStatus(r){
+  const st = guessState(r);
+  if (st==="closed") return `<div class="row banner" id="h-guess-status"><span>You closed guessing. Players can't change their picks.</span><button class="btn" type="button" id="h-unclose">Reopen guessing</button></div>`;
+  if (st==="past") return `<div class="row banner" id="h-guess-status"><span>Guessing closed ${esc(fmtPT(r.guessDeadline))}. To reopen it, set a later time above and save.</span></div>`;
+  return `<div class="row banner" id="h-guess-status"><span>Guessing is open${r.guessDeadline?` until ${esc(fmtPT(r.guessDeadline))}`:" with no deadline"}.</span><button class="btn" type="button" id="h-close">Close guessing now</button></div>`;
+}
 function renderHost(){
   const el = $("#view-host");
   if (!hostAuthed){
@@ -620,6 +685,10 @@ function renderHost(){
     </div>
     <label class="field" for="h-prompt">Prompt<input type="text" id="h-prompt" value="${esc(hostDraft.prompt)}" placeholder="e.g. Songs that make you drive too fast"></label>
     <label class="field" for="h-per">Times each name can be picked <span class="hint">Usually how many songs each player submits. ${r?"Leave blank for no limit.":"Leave blank to use songs ÷ players."}</span><input type="number" id="h-per" min="1" max="20" inputmode="numeric" value="${esc(hostDraft.perPlayer||"")}" placeholder="${r?"No limit":"Auto"}" style="max-width:160px"></label>
+    <div class="field"><label for="h-due">Guessing due by <span class="hint">Music League's voting deadline, in Pacific time. Guessing locks then so nobody can look up the submitters. Leave blank for no deadline.</span></label>
+      <div class="row"><input type="datetime-local" id="h-due" value="${esc(hostDraft.deadline||"")}" style="max-width:240px"><button class="btn" type="button" id="h-due-clear">Clear</button></div>
+      <span class="hint" id="h-due-text">${hostDraft.deadline?esc("Players see: Guessing due by "+fmtPT(ptLocalToISO(hostDraft.deadline))):"No deadline"}</span></div>
+    ${r&&r.status==="open"?hostGuessStatus(r):""}
     <div class="grid2">
       <label class="field" for="h-players">Players <span class="hint">One name per line, or load Music League's competitors.csv</span><textarea id="h-players">${esc(hostDraft.players)}</textarea>
         <input type="file" id="h-players-file" accept=".csv,text/csv"></label>
@@ -685,10 +754,20 @@ document.addEventListener("click", async e=>{
     renderHost(); return;
   }
   if (e.target.id==="h-reveal") return hostReveal();
+  if (e.target.id==="h-due-clear"){ if (hostDraft){ hostDraft.deadline = ""; if (hostRoundId==="new") ls.set("wsii.newRound", JSON.stringify(hostDraft)); } renderHost(); return; }
+  if (e.target.id==="h-close" || e.target.id==="h-unclose"){
+    const closed = e.target.id==="h-close";
+    try{ await hostCall("deadline", {roundId:hostRoundId, closed}); toast(closed ? "Guessing closed" : "Guessing reopened"); await refresh(); }catch(err){ toast(err.message); }
+    renderHost(); return;
+  }
   if (e.target.id==="h-reopen"){
     const r = rounds.find(x=>x.id===hostRoundId); if (!r) return;
     revealDraft = {...(r.answers||{})};
-    try{ await hostCall("round", {round:{...r, status:"open", answers:null}}); toast("Guessing reopened"); await refresh(); }catch(err){ toast(err.message); }
+    try{
+      await hostCall("round", {round:{...r, status:"open", answers:null, closedAt:null}});
+      toast(r.guessDeadline && nowMs() >= Date.parse(r.guessDeadline) ? "Reopened, but the deadline has passed. Set a later Guessing due by to let people guess." : "Guessing reopened");
+      await refresh();
+    }catch(err){ toast(err.message); }
     renderHost(); return;
   }
   if (e.target.id==="h-release-btn"){
@@ -706,7 +785,8 @@ document.addEventListener("input", e=>{
     if (r && w) w.innerHTML = submitBar(r, myPicks(currentRoundId));
     return;
   }
-  const map = {"h-per":"perPlayer","h-title":"title","h-prompt":"prompt","h-playlist":"playlist","h-players":"players","h-songs":"songs"};
+  if (e.target.id==="h-due" && hostDraft){ const t = $("#h-due-text"); const iso = ptLocalToISO(e.target.value); if (t) t.textContent = iso ? "Players see: Guessing due by "+fmtPT(iso) : "No deadline"; }
+  const map = {"h-due":"deadline","h-per":"perPlayer","h-title":"title","h-prompt":"prompt","h-playlist":"playlist","h-players":"players","h-songs":"songs"};
   if (map[e.target.id] && hostDraft){ hostDraft[map[e.target.id]] = e.target.value; if (hostRoundId==="new") ls.set("wsii.newRound", JSON.stringify(hostDraft)); }
 });
 document.addEventListener("change", async e=>{
@@ -765,8 +845,10 @@ async function hostSave(){
   const songs = parsed.map(s=>({id: oldByKey.get((s.title+"|"+s.artist).toLowerCase()) || rid(), ...s}));
   // New rounds default to songs ÷ players (rounded up); an edited round with the box blank has no limit.
   const per = parseInt(d.perPlayer, 10) || (existing ? 0 : Math.ceil(songs.length / players.length));
-  const r = existing ? {...existing, title:d.title.trim()||existing.title, prompt:d.prompt.trim(), playlist:d.playlist.trim(), players, songs, perPlayer:per}
-                     : {id:rid(), title:d.title.trim()||`Round ${rounds.length+1}`, prompt:d.prompt.trim(), playlist:d.playlist.trim(), players, songs, perPlayer:per, status:"open", answers:null, createdAt:Date.now()};
+  const guessDeadline = d.deadline ? ptLocalToISO(d.deadline) : null;
+  if (d.deadline && !guessDeadline){ toast("Pick a date and time for Guessing due by, or clear it."); return; }
+  const r = existing ? {...existing, title:d.title.trim()||existing.title, prompt:d.prompt.trim(), playlist:d.playlist.trim(), players, songs, perPlayer:per, guessDeadline}
+                     : {id:rid(), title:d.title.trim()||`Round ${rounds.length+1}`, prompt:d.prompt.trim(), playlist:d.playlist.trim(), players, songs, perPlayer:per, guessDeadline, closedAt:null, status:"open", answers:null, createdAt:Date.now()};
   try{
     await hostCall("round", {round:r});
     if (!existing) ls.set("wsii.newRound", null);
@@ -796,6 +878,9 @@ ready = true; render();
   // skip background refreshes while someone has a dropdown open, so it doesn't snap shut
   setInterval(()=>{ const a=document.activeElement; if (!document.hidden && !submitting && !(a && /^(SELECT|INPUT|TEXTAREA)$/.test(a.tagName))) refresh(); }, 20000);
   document.addEventListener("visibilitychange", ()=>{ if (!document.hidden) refresh(); });
+  // Lock the ballot the moment a deadline passes, without waiting for the next refresh.
+  let lastStates = "";
+  setInterval(()=>{ const sig = rounds.map(r=>r.id+":"+guessState(r)).join(","); if (sig!==lastStates){ const first = !lastStates; lastStates = sig; if (!first) render(); } }, 5000);
 })();
 </script>
 </body>
